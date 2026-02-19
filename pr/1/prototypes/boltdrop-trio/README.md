@@ -5,6 +5,7 @@ One-line hook: **Unscrew bolts to drop colored tokens into a 7-slot tray — mat
 ## What this MVP covers
 
 - Tap-to-unscrew interaction (bolts)
+- **Bolt preview** shows exactly what each bolt will drop (1–3 tokens)
 - Plates dropping 1–3 tokens into a 7-slot tray
 - Auto-clear on **3-of-a-kind** in the tray
 - Lose condition: tray jams (fills)
