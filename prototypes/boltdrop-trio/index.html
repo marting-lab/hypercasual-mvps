@@ -62,7 +62,7 @@
 
     .bolt{
       position:absolute;
-      width:44px; height:44px;
+      width:52px; height:52px;
       border-radius:999px;
       display:grid; place-items:center;
       background: rgba(255,255,255,0.08);
@@ -70,6 +70,25 @@
       box-shadow: 0 10px 18px rgba(0,0,0,0.25);
       cursor:pointer;
       user-select:none;
+    }
+    .bolt .preview{
+      position:absolute;
+      left:50%; bottom:-8px;
+      transform: translateX(-50%);
+      display:flex;
+      gap:4px;
+      padding:4px 6px;
+      border-radius:999px;
+      background: rgba(0,0,0,0.40);
+      border:1px solid rgba(255,255,255,0.14);
+      backdrop-filter: blur(6px);
+      pointer-events:none;
+    }
+    .bolt .dot{
+      width:10px; height:10px;
+      border-radius:999px;
+      border: 2px solid rgba(255,255,255,0.22);
+      box-shadow: 0 6px 10px rgba(0,0,0,0.25);
     }
     .bolt:active{transform: scale(0.98)}
     .bolt .x{
@@ -438,13 +457,25 @@
       // bolt
       const bolt = document.createElement('div');
       bolt.className = 'bolt' + (p.removed ? ' removed' : '');
-      bolt.style.left = `${(p.bx/BOARD_W)*w - 22}px`;
-      bolt.style.top = `${(p.by/BOARD_H)*h - 22}px`;
+      bolt.style.left = `${(p.bx/BOARD_W)*w - 26}px`;
+      bolt.style.top = `${(p.by/BOARD_H)*h - 26}px`;
       bolt.dataset.id = p.id;
 
       const x = document.createElement('div');
       x.className = 'x';
       bolt.appendChild(x);
+
+      // Preview: show exactly what this bolt will drop (1–3 tokens)
+      const pv = document.createElement('div');
+      pv.className = 'preview';
+      for(const cid of p.drop){
+        const c = COLORS.find(z=>z.id===cid);
+        const d = document.createElement('div');
+        d.className = 'dot';
+        d.style.background = c.hex;
+        pv.appendChild(d);
+      }
+      bolt.appendChild(pv);
 
       bolt.addEventListener('click', ()=> removePlate(p.id));
 
@@ -502,7 +533,9 @@
     }
 
     for(let i=0;i<layout.length;i++){
-      const dropCount = (r() < 0.55) ? 2 : ((r() < 0.85) ? 1 : 3);
+      // Bias towards 1–2 drops for clearer planning; 3-drops are rarer.
+      const roll = r();
+      const dropCount = (roll < 0.45) ? 1 : ((roll < 0.90) ? 2 : 3);
       const drop = [];
       for(let k=0;k<dropCount;k++) drop.push(pick());
 
