@@ -1,0 +1,619 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>BoltDrop Trio — HTML MVP</title>
+  <style>
+    :root{
+      --bg:#0b1220;
+      --panel:#111a2e;
+      --panel2:#0f1730;
+      --text:#e8f0ff;
+      --muted:#9fb3d9;
+      --accent:#22d3ee;
+      --danger:#fb7185;
+      --ok:#34d399;
+      --shadow: rgba(0,0,0,0.35);
+    }
+    *{box-sizing:border-box; -webkit-tap-highlight-color: transparent;}
+    body{margin:0; font-family: system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background: radial-gradient(1200px 900px at 50% -10%, #1a2b5a 0%, var(--bg) 55%); color:var(--text);}
+    .wrap{max-width:520px; margin:0 auto; padding:14px 12px 18px;}
+    .topbar{display:flex; gap:10px; align-items:center; justify-content:space-between; margin-bottom:10px;}
+    .title{font-weight:800; letter-spacing:0.2px;}
+    .pill{font-size:12px; padding:6px 10px; border-radius:999px; background: rgba(255,255,255,0.06); color: var(--muted);}
+    .pill b{color:var(--text)}
+
+    .hud{display:grid; grid-template-columns: 1fr auto; gap:10px; margin-bottom:10px;}
+    .card{background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03)); border:1px solid rgba(255,255,255,0.10); border-radius:14px; box-shadow: 0 12px 30px var(--shadow);}
+    .card .inner{padding:10px;}
+    .btnRow{display:flex; gap:8px; justify-content:flex-end; align-items:center;}
+    button{
+      border:0; border-radius:12px; padding:10px 12px; font-weight:700;
+      background: rgba(255,255,255,0.10); color: var(--text);
+    }
+    button:active{transform: translateY(1px);}
+    .primary{background: linear-gradient(180deg, rgba(34,211,238,0.95), rgba(34,211,238,0.65)); color:#05202a;}
+    .danger{background: linear-gradient(180deg, rgba(251,113,133,0.95), rgba(251,113,133,0.65)); color:#2b0910;}
+
+    /* Board */
+    .boardCard{position:relative; overflow:hidden;}
+    .boardHeader{display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;}
+    .boardHeader .help{font-size:12px; color:var(--muted)}
+
+    #board{
+      position:relative;
+      height: 360px;
+      background: linear-gradient(180deg, rgba(17,26,46,0.85), rgba(15,23,48,0.85));
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,0.08);
+      overflow:hidden;
+      touch-action: manipulation;
+    }
+
+    .plate{
+      position:absolute;
+      border-radius:16px;
+      background: rgba(255,255,255,0.06);
+      border:1px solid rgba(255,255,255,0.12);
+      box-shadow: 0 10px 22px rgba(0,0,0,0.25);
+      transform: translateZ(0);
+    }
+
+    .bolt{
+      position:absolute;
+      width:52px; height:52px;
+      border-radius:999px;
+      display:grid; place-items:center;
+      background: rgba(255,255,255,0.08);
+      border:1px solid rgba(255,255,255,0.14);
+      box-shadow: 0 10px 18px rgba(0,0,0,0.25);
+      cursor:pointer;
+      user-select:none;
+    }
+    .bolt .preview{
+      position:absolute;
+      left:50%; bottom:-8px;
+      transform: translateX(-50%);
+      display:flex;
+      gap:4px;
+      padding:4px 6px;
+      border-radius:999px;
+      background: rgba(0,0,0,0.40);
+      border:1px solid rgba(255,255,255,0.14);
+      backdrop-filter: blur(6px);
+      pointer-events:none;
+    }
+    .bolt .dot{
+      width:10px; height:10px;
+      border-radius:999px;
+      border: 2px solid rgba(255,255,255,0.22);
+      box-shadow: 0 6px 10px rgba(0,0,0,0.25);
+    }
+    .bolt:active{transform: scale(0.98)}
+    .bolt .x{
+      width:20px; height:20px; position:relative;
+      opacity:0.9;
+    }
+    .bolt .x:before,.bolt .x:after{
+      content:""; position:absolute; left:50%; top:50%; width:22px; height:3px; background: rgba(232,240,255,0.9);
+      transform-origin:center;
+      border-radius:999px;
+    }
+    .bolt .x:before{transform: translate(-50%,-50%) rotate(45deg)}
+    .bolt .x:after{transform: translate(-50%,-50%) rotate(-45deg)}
+
+    .bolt.removed{opacity:0.25; pointer-events:none;}
+
+    .token{
+      position:absolute;
+      width:22px; height:22px;
+      border-radius:999px;
+      border: 2px solid rgba(255,255,255,0.22);
+      box-shadow: 0 10px 14px rgba(0,0,0,0.30);
+      will-change: transform;
+    }
+
+    /* Tray */
+    .trayCard{margin-top:10px;}
+    .trayHeader{display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;}
+    .tray{display:grid; grid-template-columns: repeat(7, 1fr); gap:8px;}
+    .slot{
+      height:46px;
+      border-radius:14px;
+      background: rgba(255,255,255,0.05);
+      border:1px solid rgba(255,255,255,0.10);
+      display:grid;
+      place-items:center;
+      position:relative;
+      overflow:hidden;
+    }
+    .slot.filled{background: rgba(255,255,255,0.07)}
+    .slot .mini{
+      width:20px; height:20px; border-radius:999px;
+      border: 2px solid rgba(255,255,255,0.22);
+      transform: translateY(0);
+    }
+
+    .toast{margin-top:10px; font-size:12px; color:var(--muted)}
+    .toast b{color:var(--text)}
+
+    .banner{margin-top:10px; padding:10px; border-radius:14px; border:1px dashed rgba(255,255,255,0.18); color: var(--muted); font-size:12px;}
+    .banner a{color: var(--accent)}
+
+    .flash{animation: flash 180ms ease-out;}
+    @keyframes flash{
+      0%{filter: brightness(1)}
+      50%{filter: brightness(1.35)}
+      100%{filter: brightness(1)}
+    }
+
+    .shake{animation: shake 220ms ease-out;}
+    @keyframes shake{
+      0%{transform: translateX(0)}
+      25%{transform: translateX(-6px)}
+      50%{transform: translateX(6px)}
+      75%{transform: translateX(-3px)}
+      100%{transform: translateX(0)}
+    }
+
+    .hidden{display:none}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="title">BoltDrop Trio <span class="pill">HTML MVP</span></div>
+      <div class="pill"><b>Goal:</b> clear all plates before the 7-slot tray jams</div>
+    </div>
+
+    <div class="hud">
+      <div class="card">
+        <div class="inner">
+          <div class="boardHeader">
+            <div>
+              <div style="font-weight:800">Board</div>
+              <div class="help">Tap bolts to drop tokens. Triples in the tray auto-clear.</div>
+            </div>
+            <div class="btnRow">
+              <button id="btnUndo">Undo</button>
+              <button id="btnMagnet" class="primary">Magnet Pull</button>
+              <button id="btnReset" class="danger">Reset</button>
+            </div>
+          </div>
+          <div id="board"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="inner">
+          <div style="font-weight:800; margin-bottom:6px">Level</div>
+          <div class="pill" style="margin-bottom:8px"><b id="levelLabel">1</b> · Plates left: <b id="platesLeft">0</b></div>
+          <div class="pill" style="margin-bottom:8px">Tray filled: <b id="trayFill">0</b>/7</div>
+          <div class="pill">Status: <b id="status">Playing</b></div>
+          <div class="toast" id="hint"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card trayCard">
+      <div class="inner">
+        <div class="trayHeader">
+          <div style="font-weight:800">Tray</div>
+          <div class="help">If it fills with no clears available → you lose.</div>
+        </div>
+        <div id="tray" class="tray"></div>
+      </div>
+    </div>
+
+    <div class="banner">
+      <b>What this MVP tests:</b> the moment-to-moment decision of which bolt to remove to set up triples, and the “one move away” tension from limited tray slots.
+      <div style="margin-top:6px">
+        Next iteration ideas: colored bolts that recolor drops; locked bolts; 2-bolt plates; combo streaks.
+      </div>
+    </div>
+  </div>
+
+<script>
+(function(){
+  // --- Config ---
+  const COLORS = [
+    {id:'R', name:'Red',   hex:'#fb7185'},
+    {id:'G', name:'Green', hex:'#34d399'},
+    {id:'B', name:'Blue',  hex:'#60a5fa'},
+    {id:'Y', name:'Yellow',hex:'#fbbf24'},
+    {id:'P', name:'Purple',hex:'#a855f7'},
+  ];
+
+  const TRAY_SLOTS = 7;
+  const TOKEN_DROP_MS = 360;
+  const BOARD_W = 520;
+  const BOARD_H = 360;
+
+  // --- State ---
+  let level = 1;
+  let playing = true;
+  let plates = [];
+  let tray = []; // array of color ids
+  let history = []; // snapshots for Undo
+  let magnetUses = 1;
+
+  // --- DOM ---
+  const boardEl = document.getElementById('board');
+  const trayEl = document.getElementById('tray');
+  const statusEl = document.getElementById('status');
+  const platesLeftEl = document.getElementById('platesLeft');
+  const trayFillEl = document.getElementById('trayFill');
+  const levelLabelEl = document.getElementById('levelLabel');
+  const hintEl = document.getElementById('hint');
+  const btnReset = document.getElementById('btnReset');
+  const btnUndo = document.getElementById('btnUndo');
+  const btnMagnet = document.getElementById('btnMagnet');
+
+  function setHint(html){ hintEl.innerHTML = html || ''; }
+
+  function setStatus(s, ok=true){
+    statusEl.textContent = s;
+    statusEl.style.color = ok ? 'var(--ok)' : 'var(--danger)';
+  }
+
+  function rng(seed){
+    // Mulberry32
+    return function(){
+      seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+      let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    }
+  }
+
+  function pickColor(r){
+    return COLORS[Math.floor(r()*COLORS.length)];
+  }
+
+  function clamp(n,a,b){ return Math.max(a, Math.min(b,n)); }
+
+  function boardScale(){
+    const rect = boardEl.getBoundingClientRect();
+    return {w: rect.width, h: rect.height};
+  }
+
+  function clearBoard(){
+    boardEl.innerHTML = '';
+  }
+
+  function renderTray(){
+    trayEl.innerHTML = '';
+    for(let i=0;i<TRAY_SLOTS;i++){
+      const slot = document.createElement('div');
+      slot.className = 'slot' + (tray[i] ? ' filled' : '');
+      if(tray[i]){
+        const c = COLORS.find(x=>x.id===tray[i]);
+        const mini = document.createElement('div');
+        mini.className = 'mini';
+        mini.style.background = c.hex;
+        slot.appendChild(mini);
+      }
+      trayEl.appendChild(slot);
+    }
+    trayFillEl.textContent = tray.length;
+  }
+
+  function snapshot(){
+    // minimal snapshot for undo
+    return {
+      playing,
+      level,
+      plates: plates.map(p => ({...p})),
+      tray: tray.slice(),
+      magnetUses,
+    };
+  }
+
+  function restore(snap){
+    playing = snap.playing;
+    level = snap.level;
+    plates = snap.plates.map(p => ({...p}));
+    tray = snap.tray.slice();
+    magnetUses = snap.magnetUses;
+    renderAll();
+  }
+
+  function pushHistory(){
+    history.push(snapshot());
+    if(history.length > 30) history.shift();
+  }
+
+  function trayTryClearTriples(){
+    // If there are >=3 of any color, clear exactly one triple of that color,
+    // then repeat until no more clears.
+    let cleared = false;
+    while(true){
+      let did = false;
+      for(const c of COLORS){
+        const idxs = [];
+        for(let i=0;i<tray.length;i++) if(tray[i]===c.id) idxs.push(i);
+        if(idxs.length >= 3){
+          // remove 3 occurrences (from end to keep indexes valid)
+          for(let k=0;k<3;k++){
+            const rm = idxs[idxs.length-1-k];
+            tray.splice(rm,1);
+          }
+          did = true;
+          cleared = true;
+          boardEl.classList.add('flash');
+          setTimeout(()=>boardEl.classList.remove('flash'), 200);
+          break;
+        }
+      }
+      if(!did) break;
+    }
+    return cleared;
+  }
+
+  function checkWinLose(){
+    const platesLeft = plates.filter(p=>!p.removed).length;
+    platesLeftEl.textContent = platesLeft;
+
+    if(platesLeft === 0){
+      playing = false;
+      setStatus('WIN', true);
+      setHint('<b>Win!</b> Tap <b>Reset</b> to play again (next level generation is deterministic per level).');
+      return;
+    }
+
+    if(tray.length >= TRAY_SLOTS){
+      // If the tray is full, attempt final clears. If still full, lose.
+      trayTryClearTriples();
+      if(tray.length >= TRAY_SLOTS){
+        playing = false;
+        setStatus('LOSE', false);
+        boardEl.classList.add('shake');
+        setTimeout(()=>boardEl.classList.remove('shake'), 250);
+        setHint('Tray jammed. Try a different bolt order, or use <b>Magnet Pull</b> earlier.');
+      }
+    }
+  }
+
+  function spawnTokenAnim(colorId, fromX, fromY, slotIndex){
+    const c = COLORS.find(x=>x.id===colorId);
+    const t = document.createElement('div');
+    t.className = 'token';
+    t.style.background = c.hex;
+
+    const rect = boardEl.getBoundingClientRect();
+    // from coords are in board px space
+    const startX = fromX;
+    const startY = fromY;
+
+    // destination roughly aligned with tray slots in UI (below board).
+    // We'll just animate downward within the board for MVP.
+    const destX = clamp(30 + slotIndex * ((rect.width-60)/(TRAY_SLOTS-1)), 20, rect.width-20);
+    const destY = rect.height - 26;
+
+    t.style.transform = `translate(${startX}px, ${startY}px)`;
+    boardEl.appendChild(t);
+
+    requestAnimationFrame(()=>{
+      t.style.transition = `transform ${TOKEN_DROP_MS}ms cubic-bezier(.2,.9,.2,1)`;
+      t.style.transform = `translate(${destX}px, ${destY}px)`;
+    });
+
+    setTimeout(()=>{
+      t.remove();
+    }, TOKEN_DROP_MS + 30);
+  }
+
+  function removePlate(plateId){
+    if(!playing) return;
+    const p = plates.find(x=>x.id===plateId);
+    if(!p || p.removed) return;
+
+    pushHistory();
+
+    p.removed = true;
+
+    // Drop 1–3 tokens.
+    const drops = p.drop;
+    const {w,h} = boardScale();
+
+    // token landing slots are next tray positions
+    for(let i=0;i<drops.length;i++){
+      if(tray.length >= TRAY_SLOTS) break;
+      const slotIndex = tray.length;
+      tray.push(drops[i]);
+
+      // animate from bolt position down to tray
+      const fromX = (p.bx / BOARD_W) * w;
+      const fromY = (p.by / BOARD_H) * h;
+      spawnTokenAnim(drops[i], fromX, fromY, slotIndex);
+    }
+
+    // auto clear triples
+    setTimeout(()=>{
+      trayTryClearTriples();
+      renderAll();
+      checkWinLose();
+    }, TOKEN_DROP_MS + 20);
+
+    renderAll();
+    checkWinLose();
+  }
+
+  function renderBoard(){
+    clearBoard();
+    const {w,h} = boardScale();
+
+    // Plates
+    for(const p of plates){
+      const plate = document.createElement('div');
+      plate.className = 'plate';
+      plate.style.left = `${(p.x/BOARD_W)*w}px`;
+      plate.style.top = `${(p.y/BOARD_H)*h}px`;
+      plate.style.width = `${(p.w/BOARD_W)*w}px`;
+      plate.style.height = `${(p.h/BOARD_H)*h}px`;
+      plate.style.opacity = p.removed ? '0.10' : '1.0';
+
+      // bolt
+      const bolt = document.createElement('div');
+      bolt.className = 'bolt' + (p.removed ? ' removed' : '');
+      bolt.style.left = `${(p.bx/BOARD_W)*w - 26}px`;
+      bolt.style.top = `${(p.by/BOARD_H)*h - 26}px`;
+      bolt.dataset.id = p.id;
+
+      const x = document.createElement('div');
+      x.className = 'x';
+      bolt.appendChild(x);
+
+      // Preview: show exactly what this bolt will drop (1–3 tokens)
+      const pv = document.createElement('div');
+      pv.className = 'preview';
+      for(const cid of p.drop){
+        const c = COLORS.find(z=>z.id===cid);
+        const d = document.createElement('div');
+        d.className = 'dot';
+        d.style.background = c.hex;
+        pv.appendChild(d);
+      }
+      bolt.appendChild(pv);
+
+      bolt.addEventListener('click', ()=> removePlate(p.id));
+
+      boardEl.appendChild(plate);
+      boardEl.appendChild(bolt);
+    }
+  }
+
+  function renderAll(){
+    levelLabelEl.textContent = level;
+    renderBoard();
+    renderTray();
+    platesLeftEl.textContent = plates.filter(p=>!p.removed).length;
+
+    if(playing){
+      setStatus('Playing', true);
+      setHint(magnetUses>0
+        ? 'Tip: use <b>Magnet Pull</b> when the tray is getting tight.'
+        : 'Tip: <b>Undo</b> can save you from a bad drop order.'
+      );
+    }
+
+    btnMagnet.textContent = magnetUses>0 ? `Magnet Pull (${magnetUses})` : 'Magnet Pull (0)';
+    btnMagnet.disabled = magnetUses<=0 || !playing;
+    btnUndo.disabled = history.length===0;
+  }
+
+  function generateLevel(lvl){
+    // Deterministic by level
+    const r = rng(1337 + lvl*999);
+
+    tray = [];
+    history = [];
+    magnetUses = 1;
+    playing = true;
+
+    // Create 6 plates, each drops 1–3 tokens.
+    plates = [];
+
+    const layout = [
+      {x:40,y:34,w:200,h:90, bx:110,by:78},
+      {x:260,y:34,w:220,h:90, bx:360,by:78},
+      {x:60,y:140,w:190,h:90, bx:140,by:184},
+      {x:270,y:140,w:210,h:90, bx:350,by:184},
+      {x:90,y:246,w:170,h:90, bx:150,by:288},
+      {x:280,y:246,w:170,h:90, bx:360,by:288},
+    ];
+
+    // Ensure early solvability by limiting active colors at low levels.
+    const activeColors = lvl <= 2 ? 3 : (lvl <= 5 ? 4 : 5);
+    const colorPool = COLORS.slice(0, activeColors);
+
+    function pick(){
+      return colorPool[Math.floor(r()*colorPool.length)].id;
+    }
+
+    for(let i=0;i<layout.length;i++){
+      // Bias towards 1–2 drops for clearer planning; 3-drops are rarer.
+      const roll = r();
+      const dropCount = (roll < 0.45) ? 1 : ((roll < 0.90) ? 2 : 3);
+      const drop = [];
+      for(let k=0;k<dropCount;k++) drop.push(pick());
+
+      plates.push({
+        id: `p${i+1}`,
+        removed: false,
+        drop,
+        ...layout[i]
+      });
+    }
+
+    // Nudge solvability: force at least one triple exists across all drops.
+    const target = pick();
+    let added = 0;
+    for(const p of plates){
+      if(added>=3) break;
+      if(p.drop.length < 3 && r() < 0.6){
+        p.drop.push(target);
+        added++;
+      }
+    }
+
+    // Small UI hint
+    setHint('Tap bolts to drop tokens. Clear triples in the tray.');
+  }
+
+  function useMagnet(){
+    if(!playing || magnetUses<=0) return;
+    if(tray.length===0) return;
+
+    pushHistory();
+
+    // Remove one token of the most frequent color in tray.
+    const counts = {};
+    for(const t of tray) counts[t] = (counts[t]||0)+1;
+    let best = tray[0], bestCount = counts[best];
+    for(const k in counts){
+      if(counts[k] > bestCount){ best = k; bestCount = counts[k]; }
+    }
+    const idx = tray.lastIndexOf(best);
+    if(idx>=0) tray.splice(idx,1);
+
+    magnetUses -= 1;
+    trayTryClearTriples();
+    renderAll();
+    checkWinLose();
+  }
+
+  function undo(){
+    if(history.length===0) return;
+    const snap = history.pop();
+    restore(snap);
+  }
+
+  function reset(){
+    level = 1;
+    generateLevel(level);
+    renderAll();
+    checkWinLose();
+  }
+
+  btnReset.addEventListener('click', reset);
+  btnUndo.addEventListener('click', undo);
+  btnMagnet.addEventListener('click', useMagnet);
+
+  // Build tray UI
+  for(let i=0;i<TRAY_SLOTS;i++) tray.push(null);
+  tray = [];
+  renderTray();
+
+  // Init
+  generateLevel(level);
+  renderAll();
+  checkWinLose();
+
+  // Resize re-render
+  window.addEventListener('resize', ()=> renderAll());
+})();
+</script>
+</body>
+</html>
