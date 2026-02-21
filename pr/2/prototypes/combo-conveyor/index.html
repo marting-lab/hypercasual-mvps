@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Combo Conveyor — HTML MVP</title>
+  <style>
+    :root{
+      --bg:#0b1220;
+      --panel:#111a2e;
+      --text:#e8f0ff;
+      --muted:#9fb3d9;
+      --accent:#22d3ee;
+      --ok:#34d399;
+      --danger:#fb7185;
+      --shadow: rgba(0,0,0,0.35);
+    }
+    *{box-sizing:border-box; -webkit-tap-highlight-color: transparent;}
+    body{margin:0; font-family: system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background: radial-gradient(1200px 900px at 50% -10%, #1a2b5a 0%, var(--bg) 55%); color:var(--text);}
+    .wrap{max-width:560px; margin:0 auto; padding:14px 12px 18px;}
+    .top{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px;}
+    .title{font-weight:900; letter-spacing:0.2px;}
+    .pill{font-size:12px; padding:6px 10px; border-radius:999px; background: rgba(255,255,255,0.06); color: var(--muted);}
+    .pill b{color:var(--text)}
+
+    .card{background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03)); border:1px solid rgba(255,255,255,0.10); border-radius:14px; box-shadow: 0 12px 30px var(--shadow);}
+    .card .inner{padding:10px;}
+
+    .hud{display:flex; gap:10px; align-items:stretch; margin-bottom:10px;}
+    .hud .left{flex:1}
+    .hud .right{width:180px}
+
+    button{
+      border:0; border-radius:12px; padding:10px 12px; font-weight:800;
+      background: rgba(255,255,255,0.10); color: var(--text);
+    }
+    button:active{transform: translateY(1px);}
+    button[disabled]{opacity:0.45}
+    .primary{background: linear-gradient(180deg, rgba(34,211,238,0.95), rgba(34,211,238,0.65)); color:#05202a;}
+    .danger{background: linear-gradient(180deg, rgba(251,113,133,0.95), rgba(251,113,133,0.65)); color:#2b0910;}
+
+    .btnRow{display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;}
+
+    #game{
+      width:100%;
+      height: 360px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,0.10);
+      background: linear-gradient(180deg, rgba(17,26,46,0.92), rgba(15,23,48,0.92));
+      display:block;
+      touch-action: manipulation;
+    }
+
+    .trayWrap{margin-top:10px;}
+    .trayHeader{display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;}
+    .trays{display:grid; grid-template-columns: repeat(3, 1fr); gap:10px;}
+    .tray{
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,0.10);
+      background: rgba(255,255,255,0.04);
+      padding:8px;
+    }
+    .trayTitle{display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;}
+    .trayTitle b{font-size:13px}
+    .slots{display:grid; grid-template-columns: repeat(5, 1fr); gap:6px;}
+    .slot{height:28px; border-radius:10px; background: rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); display:grid; place-items:center; overflow:hidden}
+    .dot{width:16px; height:16px; border-radius:999px; border:2px solid rgba(255,255,255,0.22)}
+
+    .tip{margin-top:10px; font-size:12px; color:var(--muted)}
+    .tip b{color:var(--text)}
+
+    .flash{animation: flash 160ms ease-out;}
+    @keyframes flash{0%{filter:brightness(1)}50%{filter:brightness(1.35)}100%{filter:brightness(1)}}
+
+    .shake{animation: shake 220ms ease-out;}
+    @keyframes shake{0%{transform:translateX(0)}25%{transform:translateX(-6px)}50%{transform:translateX(6px)}75%{transform:translateX(-3px)}100%{transform:translateX(0)}}
+
+    .sel{outline: 2px solid rgba(34,211,238,0.85);}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div class="title">Combo Conveyor <span class="pill">HTML MVP</span></div>
+      <div class="pill"><b>Goal:</b> tap items into trays; clear triples; don’t let the belt jam</div>
+    </div>
+
+    <div class="hud">
+      <div class="card left">
+        <div class="inner">
+          <canvas id="game" width="560" height="360"></canvas>
+        </div>
+      </div>
+      <div class="card right">
+        <div class="inner">
+          <div class="pill" style="margin-bottom:8px">Status: <b id="status">Playing</b></div>
+          <div class="pill" style="margin-bottom:8px">Score: <b id="score">0</b></div>
+          <div class="pill" style="margin-bottom:8px">Streak: <b id="streak">0</b></div>
+          <div class="pill" style="margin-bottom:10px">Speed: <b id="speed">1.00x</b></div>
+          <div class="btnRow">
+            <button id="t1" class="primary">Tray 1</button>
+            <button id="t2">Tray 2</button>
+            <button id="t3">Tray 3</button>
+            <button id="reset" class="danger">Reset</button>
+          </div>
+          <div class="tip" id="tip"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card trayWrap">
+      <div class="inner">
+        <div class="trayHeader">
+          <div style="font-weight:900">Trays</div>
+          <div class="pill">Each tray has <b>10 slots</b>. Triples auto-clear.</div>
+        </div>
+        <div id="trays" class="trays"></div>
+      </div>
+    </div>
+
+    <div class="tip">
+      <b>MVP focus:</b> timing pressure + lane/belt clarity + triple-tray clearing decisions.
+    </div>
+  </div>
+
+<script>
+(() => {
+  const COLORS = [
+    {id:'R', name:'Red',   hex:'#fb7185'},
+    {id:'G', name:'Green', hex:'#34d399'},
+    {id:'B', name:'Blue',  hex:'#60a5fa'},
+    {id:'Y', name:'Yellow',hex:'#fbbf24'},
+    {id:'P', name:'Purple',hex:'#a855f7'},
+  ];
+
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const statusEl = document.getElementById('status');
+  const scoreEl = document.getElementById('score');
+  const streakEl = document.getElementById('streak');
+  const speedEl = document.getElementById('speed');
+  const tipEl = document.getElementById('tip');
+
+  const btnReset = document.getElementById('reset');
+  const btnT1 = document.getElementById('t1');
+  const btnT2 = document.getElementById('t2');
+  const btnT3 = document.getElementById('t3');
+
+  const TRAY_SLOTS = 10;
+  const BELT_Y = 170;
+  const BELT_H = 70;
+  const ITEM_R = 16;
+  const SPAWN_MS = 850;
+
+  let trays = [[], [], []];
+  let selectedTray = 0;
+
+  let items = [];
+  let lastSpawn = 0;
+  let t0 = 0;
+  let running = true;
+
+  let score = 0;
+  let streak = 0;
+  let speed = 1.0;
+
+  function setSelected(i){
+    selectedTray = i;
+    [btnT1,btnT2,btnT3].forEach((b,idx)=> b.classList.toggle('primary', idx===i));
+  }
+
+  function rand(){ return Math.random(); }
+  function pickColor(active=4){
+    return COLORS[Math.floor(rand()*active)].id;
+  }
+
+  function drawRoundedRect(x,y,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+  }
+
+  function reset(){
+    trays = [[],[],[]];
+    items = [];
+    lastSpawn = 0;
+    running = true;
+    score = 0;
+    streak = 0;
+    speed = 1.0;
+    setSelected(0);
+    updateUI();
+    tipEl.innerHTML = 'Tap an item on the belt to pull it into the selected tray.';
+  }
+
+  function updateUI(){
+    statusEl.textContent = running ? 'Playing' : 'Game Over';
+    statusEl.style.color = running ? 'var(--ok)' : 'var(--danger)';
+    scoreEl.textContent = String(score);
+    streakEl.textContent = String(streak);
+    speedEl.textContent = speed.toFixed(2) + 'x';
+
+    // Disable if tray is full
+    btnT1.disabled = trays[0].length >= TRAY_SLOTS || !running;
+    btnT2.disabled = trays[1].length >= TRAY_SLOTS || !running;
+    btnT3.disabled = trays[2].length >= TRAY_SLOTS || !running;
+  }
+
+  function tryClearTriples(trayIndex){
+    const tray = trays[trayIndex];
+    let clearedAny = false;
+
+    while(true){
+      let did = false;
+      for(const c of COLORS){
+        const idxs = [];
+        for(let i=0;i<tray.length;i++) if(tray[i]===c.id) idxs.push(i);
+        if(idxs.length >= 3){
+          for(let k=0;k<3;k++) tray.splice(idxs[idxs.length-1-k], 1);
+          did = true;
+          clearedAny = true;
+          score += 10 + streak * 2;
+          streak += 1;
+          speed = Math.min(1.65, 1.0 + streak * 0.03);
+          flash();
+          break;
+        }
+      }
+      if(!did) break;
+    }
+
+    return clearedAny;
+  }
+
+  function flash(){
+    canvas.classList.add('flash');
+    setTimeout(()=>canvas.classList.remove('flash'), 180);
+  }
+  function shake(){
+    canvas.classList.add('shake');
+    setTimeout(()=>canvas.classList.remove('shake'), 220);
+  }
+
+  function gameOver(reason){
+    running = false;
+    tipEl.innerHTML = `<b>Game Over:</b> ${reason} Hit <b>Reset</b> to try again.`;
+    shake();
+    updateUI();
+  }
+
+  function spawn(now){
+    // Increase active colors slowly (keeps early solvable)
+    const activeColors = (score < 60) ? 3 : (score < 140 ? 4 : 5);
+
+    const lane = 0; // MVP: one lane
+    const c = pickColor(activeColors);
+
+    items.push({
+      id: 'i' + Math.floor(now),
+      lane,
+      x: -40,
+      y: BELT_Y + BELT_H/2,
+      c,
+    });
+  }
+
+  function beltEndX(){
+    return canvas.width + 30;
+  }
+
+  function step(now){
+    if(!t0) t0 = now;
+
+    const dt = Math.min(40, now - (step._last || now));
+    step._last = now;
+
+    // spawn
+    if(running){
+      if(now - lastSpawn > SPAWN_MS / speed){
+        spawn(now);
+        lastSpawn = now;
+      }
+    }
+
+    // move
+    const v = 0.10 * speed * dt; // px
+    for(const it of items) it.x += v;
+
+    // jam condition
+    if(running){
+      const jam = items.some(it => it.x > beltEndX());
+      if(jam) gameOver('The belt jammed.');
+    }
+
+    // draw
+    draw(now);
+
+    requestAnimationFrame(step);
+  }
+
+  function draw(now){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    // background hints
+    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+    for(let i=0;i<7;i++){
+      ctx.fillRect(20 + i*80, 22, 2, 316);
+    }
+
+    // belt
+    drawRoundedRect(20, BELT_Y, canvas.width-40, BELT_H, 16);
+    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // belt arrows
+    ctx.fillStyle = 'rgba(34,211,238,0.18)';
+    for(let x=40; x<canvas.width-40; x+=70){
+      ctx.beginPath();
+      ctx.moveTo(x, BELT_Y + BELT_H/2);
+      ctx.lineTo(x+18, BELT_Y + BELT_H/2 - 10);
+      ctx.lineTo(x+18, BELT_Y + BELT_H/2 + 10);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // items
+    for(const it of items){
+      const col = COLORS.find(x=>x.id===it.c);
+      ctx.beginPath();
+      ctx.arc(it.x, it.y, ITEM_R, 0, Math.PI*2);
+      ctx.fillStyle = col.hex;
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.stroke();
+
+      // tiny highlight
+      ctx.beginPath();
+      ctx.arc(it.x-6, it.y-6, 4, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.fill();
+    }
+
+    // tray selector hint
+    ctx.fillStyle = 'rgba(232,240,255,0.85)';
+    ctx.font = '14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.fillText(`Selected tray: ${selectedTray+1}`, 22, 28);
+
+    // overlays
+    if(!running){
+      ctx.fillStyle = 'rgba(0,0,0,0.45)';
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle = 'rgba(232,240,255,0.95)';
+      ctx.font = '24px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+      ctx.fillText('GAME OVER', canvas.width/2 - 80, canvas.height/2);
+    }
+  }
+
+  function renderTrays(){
+    const traysEl = document.getElementById('trays');
+    traysEl.innerHTML = '';
+
+    trays.forEach((tray, idx) => {
+      const t = document.createElement('div');
+      t.className = 'tray' + (idx===selectedTray ? ' sel' : '');
+
+      const header = document.createElement('div');
+      header.className = 'trayTitle';
+      header.innerHTML = `<b>Tray ${idx+1}</b><span class="pill" style="padding:4px 8px">${tray.length}/${TRAY_SLOTS}</span>`;
+
+      const slots = document.createElement('div');
+      slots.className = 'slots';
+      for(let i=0;i<TRAY_SLOTS;i++){
+        const s = document.createElement('div');
+        s.className = 'slot';
+        if(tray[i]){
+          const col = COLORS.find(x=>x.id===tray[i]);
+          const d = document.createElement('div');
+          d.className = 'dot';
+          d.style.background = col.hex;
+          s.appendChild(d);
+        }
+        slots.appendChild(s);
+      }
+
+      t.appendChild(header);
+      t.appendChild(slots);
+      traysEl.appendChild(t);
+    });
+  }
+
+  function onTap(evt){
+    if(!running) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = (evt.touches ? evt.touches[0].clientX : evt.clientX) - rect.left;
+    const y = (evt.touches ? evt.touches[0].clientY : evt.clientY) - rect.top;
+
+    // find topmost item hit
+    const hit = items.find(it => {
+      const dx = it.x - x;
+      const dy = it.y - y;
+      return (dx*dx + dy*dy) <= (ITEM_R*ITEM_R);
+    });
+
+    if(!hit) return;
+
+    // tray full?
+    if(trays[selectedTray].length >= TRAY_SLOTS){
+      tipEl.innerHTML = `<b>Tray ${selectedTray+1}</b> is full. Switch trays.`;
+      return;
+    }
+
+    // pull into tray
+    trays[selectedTray].push(hit.c);
+    // remove from belt
+    items = items.filter(it => it !== hit);
+
+    // clear triples
+    const cleared = tryClearTriples(selectedTray);
+    if(!cleared){
+      // missing clear breaks streak gradually
+      streak = Math.max(0, streak - 1);
+      speed = Math.max(1.0, speed - 0.01);
+    }
+
+    // lose condition: all trays full
+    if(trays.every(t => t.length >= TRAY_SLOTS)){
+      gameOver('All trays are full.');
+    }
+
+    renderTrays();
+    updateUI();
+  }
+
+  // Buttons
+  btnReset.addEventListener('click', () => { reset(); renderTrays(); });
+  btnT1.addEventListener('click', () => { setSelected(0); renderTrays(); });
+  btnT2.addEventListener('click', () => { setSelected(1); renderTrays(); });
+  btnT3.addEventListener('click', () => { setSelected(2); renderTrays(); });
+
+  // Input
+  canvas.addEventListener('click', onTap);
+  canvas.addEventListener('touchstart', (e)=>{ onTap(e); e.preventDefault(); }, {passive:false});
+
+  // Init
+  reset();
+  renderTrays();
+  requestAnimationFrame(step);
+})();
+</script>
+</body>
+</html>
