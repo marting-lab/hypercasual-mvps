@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Screw & Slide Blueprint — HTML MVP</title>
+  <style>
+    :root{
+      --bg:#0b1220;
+      --panel:#111a2e;
+      --text:#e8f0ff;
+      --muted:#9fb3d9;
+      --accent:#22d3ee;
+      --ok:#34d399;
+      --danger:#fb7185;
+      --shadow: rgba(0,0,0,0.35);
+    }
+    *{box-sizing:border-box; -webkit-tap-highlight-color: transparent;}
+    body{margin:0; font-family: system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background: radial-gradient(1200px 900px at 50% -10%, #1a2b5a 0%, var(--bg) 55%); color:var(--text);}
+    .wrap{max-width:600px; margin:0 auto; padding:14px 12px 18px;}
+    .top{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px;}
+    .title{font-weight:900; letter-spacing:0.2px;}
+    .pill{font-size:12px; padding:6px 10px; border-radius:999px; background: rgba(255,255,255,0.06); color: var(--muted);}
+    .pill b{color:var(--text)}
+
+    .card{background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03)); border:1px solid rgba(255,255,255,0.10); border-radius:14px; box-shadow: 0 12px 30px var(--shadow);}
+    .card .inner{padding:10px;}
+
+    .hud{display:flex; gap:10px; align-items:stretch; margin-bottom:10px;}
+    .hud .left{flex:1}
+    .hud .right{width:200px}
+
+    button{
+      border:0; border-radius:12px; padding:10px 12px; font-weight:800;
+      background: rgba(255,255,255,0.10); color: var(--text);
+    }
+    button:active{transform: translateY(1px);}
+    .danger{background: linear-gradient(180deg, rgba(251,113,133,0.95), rgba(251,113,133,0.65)); color:#2b0910;}
+
+    #game{
+      width:100%;
+      height: 380px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,0.10);
+      background: linear-gradient(180deg, rgba(17,26,46,0.92), rgba(15,23,48,0.92));
+      display:block;
+      touch-action: manipulation;
+    }
+
+    .targets{display:flex; gap:8px; margin-top:10px;}
+    .tBox{flex:1; padding:8px; border-radius:14px; border:1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.04)}
+    .tBox b{display:block; margin-bottom:6px}
+    .slots{display:flex; gap:6px;}
+    .slot{width:28px; height:28px; border-radius:10px; background: rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); display:grid; place-items:center}
+    .dot{width:16px; height:16px; border-radius:999px; border:2px solid rgba(255,255,255,0.22)}
+
+    .tip{margin-top:10px; font-size:12px; color:var(--muted)}
+    .tip b{color:var(--text)}
+
+    .flash{animation: flash 160ms ease-out;}
+    @keyframes flash{0%{filter:brightness(1)}50%{filter:brightness(1.35)}100%{filter:brightness(1)}}
+    .shake{animation: shake 220ms ease-out;}
+    @keyframes shake{0%{transform:translateX(0)}25%{transform:translateX(-6px)}50%{transform:translateX(6px)}75%{transform:translateX(-3px)}100%{transform:translateX(0)}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div class="title">Screw & Slide Blueprint <span class="pill">HTML MVP</span></div>
+      <div class="pill"><b>Hook:</b> clear targets, then plates slide and reveal new bolts</div>
+    </div>
+
+    <div class="hud">
+      <div class="card left"><div class="inner"><canvas id="game" width="600" height="380"></canvas></div></div>
+      <div class="card right"><div class="inner">
+        <div class="pill" style="margin-bottom:8px">Status: <b id="status">Playing</b></div>
+        <div class="pill" style="margin-bottom:8px">Moves: <b id="moves">0</b></div>
+        <div class="pill" style="margin-bottom:8px">Matches: <b id="matches">0</b></div>
+        <button id="reset" class="danger">Reset</button>
+        <div class="tip" id="tip"></div>
+      </div></div>
+    </div>
+
+    <div class="card"><div class="inner">
+      <div style="font-weight:900; margin-bottom:8px">Targets</div>
+      <div class="targets" id="targets"></div>
+      <div class="tip" style="margin-top:10px"><b>How to play:</b> tap reachable bolts. Each tap sends that bolt color into the target boxes. When a target box reaches 3, it clears and the blueprint plates <b>slide</b> (predictable) to change reachability.</div>
+    </div></div>
+  </div>
+
+<script>
+(() => {
+  const COLORS = [
+    {id:'R', name:'Red',   hex:'#fb7185'},
+    {id:'G', name:'Green', hex:'#34d399'},
+    {id:'B', name:'Blue',  hex:'#60a5fa'},
+    {id:'Y', name:'Yellow',hex:'#fbbf24'},
+  ];
+
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const statusEl = document.getElementById('status');
+  const movesEl = document.getElementById('moves');
+  const matchesEl = document.getElementById('matches');
+  const resetBtn = document.getElementById('reset');
+  const tipEl = document.getElementById('tip');
+  const targetsEl = document.getElementById('targets');
+
+  // Board model:
+  // Two plates that slide horizontally after each match.
+  // Bolts belong to either plate or the base.
+  // A bolt is reachable if it is not covered by a plate rectangle.
+
+  const PLATE_W = 260;
+  const PLATE_H = 140;
+  const BASE_MARGIN = 28;
+  const BOLT_R = 18;
+
+  let moves = 0;
+  let matches = 0;
+  let running = true;
+
+  // plates
+  let plates = [];
+
+  // bolts
+  let bolts = [];
+
+  // Targets: 2 active colors
+  let targets = [];
+
+  function setStatus(ok, text){
+    statusEl.textContent = text;
+    statusEl.style.color = ok ? 'var(--ok)' : 'var(--danger)';
+  }
+
+  function flash(){ canvas.classList.add('flash'); setTimeout(()=>canvas.classList.remove('flash'), 170); }
+  function shake(){ canvas.classList.add('shake'); setTimeout(()=>canvas.classList.remove('shake'), 220); }
+
+  function colHex(id){ return COLORS.find(c=>c.id===id).hex; }
+
+  function init(){
+    moves = 0; matches = 0; running = true;
+
+    // deterministic simple layout
+    plates = [
+      {id:'p1', x: 70, y: 60, w: PLATE_W, h: PLATE_H, dx: +120, ghostDx:+120, color:'rgba(34,211,238,0.10)'},
+      {id:'p2', x: 250, y: 190, w: PLATE_W, h: PLATE_H, dx: -120, ghostDx:-120, color:'rgba(168,85,247,0.10)'}
+    ];
+
+    // bolts (some initially hidden under plates)
+    bolts = [
+      {id:'b1', x: 120, y: 110, c:'R', removed:false},
+      {id:'b2', x: 220, y: 110, c:'G', removed:false},
+      {id:'b3', x: 320, y: 110, c:'B', removed:false},
+      {id:'b4', x: 420, y: 110, c:'Y', removed:false},
+
+      {id:'b5', x: 140, y: 240, c:'R', removed:false},
+      {id:'b6', x: 240, y: 240, c:'G', removed:false},
+      {id:'b7', x: 340, y: 240, c:'B', removed:false},
+      {id:'b8', x: 440, y: 240, c:'Y', removed:false},
+
+      // base bolts (always reachable)
+      {id:'b9', x: 90,  y: 330, c:'R', removed:false, base:true},
+      {id:'b10',x: 170, y: 330, c:'G', removed:false, base:true},
+      {id:'b11',x: 250, y: 330, c:'B', removed:false, base:true},
+      {id:'b12',x: 330, y: 330, c:'Y', removed:false, base:true},
+    ];
+
+    targets = [
+      {color:'R', slots:[]},
+      {color:'G', slots:[]},
+    ];
+
+    tipEl.innerHTML = 'Tap bolts that are <b>reachable</b> (not covered). Fill target boxes to 3 to trigger a <b>plate slide</b>.';
+    updateUI();
+    draw();
+  }
+
+  function updateUI(){
+    movesEl.textContent = String(moves);
+    matchesEl.textContent = String(matches);
+
+    targetsEl.innerHTML = '';
+    for(const t of targets){
+      const box = document.createElement('div');
+      box.className = 'tBox';
+      box.innerHTML = `<b>${COLORS.find(c=>c.id===t.color).name}</b>`;
+      const slots = document.createElement('div');
+      slots.className = 'slots';
+      for(let i=0;i<3;i++){
+        const s = document.createElement('div');
+        s.className = 'slot';
+        if(t.slots[i]){
+          const d = document.createElement('div');
+          d.className = 'dot';
+          d.style.background = colHex(t.slots[i]);
+          s.appendChild(d);
+        }
+        slots.appendChild(s);
+      }
+      box.appendChild(slots);
+      targetsEl.appendChild(box);
+    }
+
+    if(running) setStatus(true, 'Playing');
+  }
+
+  function rectContains(px,py, r){
+    return px >= r.x && px <= r.x+r.w && py >= r.y && py <= r.y+r.h;
+  }
+
+  function isReachable(b){
+    if(b.removed) return false;
+    if(b.base) return true;
+    // reachable if not inside any plate rect
+    for(const p of plates){
+      if(rectContains(b.x,b.y,p)) return false;
+    }
+    return true;
+  }
+
+  function drawRoundedRect(x,y,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    // blueprint grid
+    ctx.fillStyle = 'rgba(255,255,255,0.03)';
+    for(let x=0;x<canvas.width;x+=24) ctx.fillRect(x,0,1,canvas.height);
+    for(let y=0;y<canvas.height;y+=24) ctx.fillRect(0,y,canvas.width,1);
+
+    // ghost arrows for sliding (predictability)
+    ctx.strokeStyle = 'rgba(34,211,238,0.45)';
+    ctx.lineWidth = 2;
+    plates.forEach(p => {
+      const gx = p.x + p.ghostDx;
+      ctx.setLineDash([5,6]);
+      drawRoundedRect(gx, p.y, p.w, p.h, 16);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    });
+
+    // plates
+    plates.forEach(p => {
+      drawRoundedRect(p.x, p.y, p.w, p.h, 16);
+      ctx.fillStyle = p.color;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // plate label
+      ctx.fillStyle = 'rgba(232,240,255,0.65)';
+      ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+      ctx.fillText('PLATE', p.x+12, p.y+20);
+    });
+
+    // bolts
+    bolts.forEach(b => {
+      if(b.removed) return;
+      const reachable = isReachable(b);
+      const c = colHex(b.c);
+
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, BOLT_R, 0, Math.PI*2);
+      ctx.fillStyle = c;
+      ctx.globalAlpha = reachable ? 1.0 : 0.28;
+      ctx.fill();
+      ctx.globalAlpha = 1.0;
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = reachable ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.10)';
+      ctx.stroke();
+
+      // cross slot
+      ctx.strokeStyle = 'rgba(255,255,255,0.70)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(b.x-7, b.y-7); ctx.lineTo(b.x+7, b.y+7);
+      ctx.moveTo(b.x+7, b.y-7); ctx.lineTo(b.x-7, b.y+7);
+      ctx.stroke();
+
+      // reach hint
+      if(reachable){
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, BOLT_R+6, 0, Math.PI*2);
+        ctx.strokeStyle = 'rgba(34,211,238,0.25)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    });
+
+    // footer label
+    ctx.fillStyle = 'rgba(232,240,255,0.70)';
+    ctx.font = '13px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.fillText('Reachable bolts glow cyan. Covered bolts are dim.', 18, canvas.height-14);
+  }
+
+  function slidePlates(){
+    // deterministic slide: swap directions every match
+    plates.forEach(p => {
+      p.x += p.dx;
+      // bounce within canvas
+      if(p.x < BASE_MARGIN){ p.x = BASE_MARGIN; p.dx *= -1; }
+      if(p.x + p.w > canvas.width-BASE_MARGIN){ p.x = canvas.width-BASE_MARGIN - p.w; p.dx *= -1; }
+
+      // ghost arrow follows current dx
+      p.ghostDx = p.dx;
+    });
+  }
+
+  function feedTargets(colorId){
+    // send into matching target box if exists; else ignore (MVP)
+    const t = targets.find(t => t.color === colorId);
+    if(!t) return false;
+    t.slots.push(colorId);
+    if(t.slots.length >= 3){
+      // clear
+      t.slots = [];
+      matches += 1;
+      flash();
+      slidePlates();
+      // rotate target colors to keep it moving
+      rotateTargets();
+      updateUI();
+      draw();
+      return true;
+    }
+    return false;
+  }
+
+  function rotateTargets(){
+    // simple rotation: keep 2 targets, shift one to the next color cyclically
+    const idx = COLORS.findIndex(c=>c.id===targets[1].color);
+    const next = COLORS[(idx+1) % COLORS.length].id;
+    targets[1].color = next;
+    targets[1].slots = [];
+  }
+
+  function gameOver(reason){
+    running = false;
+    setStatus(false, 'Game Over');
+    tipEl.innerHTML = `<b>Game Over:</b> ${reason}`;
+    shake();
+  }
+
+  function win(){
+    running = false;
+    setStatus(true, 'Win');
+    tipEl.innerHTML = '<b>Win!</b> You triggered plate slides and kept clearing targets. Reset to try again.';
+    flash();
+  }
+
+  function onTap(evt){
+    if(!running) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = (evt.touches ? evt.touches[0].clientX : evt.clientX) - rect.left;
+    const y = (evt.touches ? evt.touches[0].clientY : evt.clientY) - rect.top;
+
+    // scale coords
+    const sx = x * (canvas.width / rect.width);
+    const sy = y * (canvas.height / rect.height);
+
+    // pick a reachable bolt under pointer
+    let picked = null;
+    for(const b of bolts){
+      if(!isReachable(b)) continue;
+      const dx = b.x - sx;
+      const dy = b.y - sy;
+      if(dx*dx + dy*dy <= (BOLT_R*BOLT_R)) { picked = b; break; }
+    }
+    if(!picked) return;
+
+    moves += 1;
+    picked.removed = true;
+
+    feedTargets(picked.c);
+
+    updateUI();
+    draw();
+
+    // win if all non-base bolts removed
+    const remaining = bolts.filter(b => !b.removed && !b.base).length;
+    if(remaining === 0){ win(); }
+  }
+
+  resetBtn.addEventListener('click', init);
+  canvas.addEventListener('click', onTap);
+  canvas.addEventListener('touchstart', (e)=>{ onTap(e); e.preventDefault(); }, {passive:false});
+
+  init();
+})();
+</script>
+</body>
+</html>
