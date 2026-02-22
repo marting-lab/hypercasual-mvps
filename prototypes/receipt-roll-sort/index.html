@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Receipt Roll Sort (HTML MVP)</title>
+  <style>
+    :root{
+      --bg:#0f1220; --panel:#171a2c; --panel2:#1e2140; --text:#eef1ff; --muted:#aab0d6;
+      --good:#45d483; --bad:#ff5a7a; --accent:#6bd6ff;
+      --binA:#ffcc66; --binB:#7ee0ff; --binC:#b9ff7e; --binD:#d7a6ff;
+      --shadow: 0 10px 25px rgba(0,0,0,.35);
+    }
+    *{ box-sizing:border-box; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    body{ margin:0; background: radial-gradient(1200px 700px at 30% -10%, #2b2f66 0%, var(--bg) 55%);
+      color:var(--text); min-height:100vh; display:flex; justify-content:center; padding:16px; }
+    .app{ width:min(980px, 100%); display:grid; gap:12px; }
+    header{ display:flex; justify-content:space-between; align-items:flex-end; gap:12px; }
+    h1{ margin:0; font-size:18px; letter-spacing:.2px; }
+    .sub{ color:var(--muted); font-size:12px; }
+    .stats{ display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+    .pill{ background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.10);
+      padding:6px 10px; border-radius:999px; font-size:12px; box-shadow: var(--shadow); }
+
+    .grid{ display:grid; gap:12px; grid-template-columns: 1.1fr 1fr; }
+    @media (max-width: 860px){ .grid{ grid-template-columns: 1fr; } }
+
+    .card{ background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+      border:1px solid rgba(255,255,255,.10); border-radius:16px; padding:12px; box-shadow: var(--shadow); }
+
+    .how{ display:flex; gap:10px; align-items:flex-start; }
+    .how b{ color: var(--accent); }
+
+    .board{ display:grid; gap:10px; }
+
+    .receiptWrap{ background: rgba(255,255,255,.04); border:1px dashed rgba(255,255,255,.18);
+      border-radius:14px; padding:10px; }
+    .receiptTop{ display:flex; justify-content:space-between; align-items:center; gap:10px; }
+    .receiptTitle{ font-size:13px; color:var(--muted); }
+    .btnRow{ display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+    button{ appearance:none; border:none; border-radius:12px; padding:10px 12px; font-weight:700; font-size:13px;
+      color:var(--text); background: rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.14);
+      box-shadow: var(--shadow); }
+    button:active{ transform: translateY(1px); }
+    .primary{ background: linear-gradient(180deg, rgba(107,214,255,.35), rgba(107,214,255,.15)); border-color: rgba(107,214,255,.45); }
+    .danger{ background: linear-gradient(180deg, rgba(255,90,122,.30), rgba(255,90,122,.12)); border-color: rgba(255,90,122,.40); }
+
+    .queue{ margin-top:10px; display:grid; grid-template-columns: repeat(5, 1fr); gap:10px; }
+    .slot{ aspect-ratio: 1/1; border-radius:14px; background: rgba(0,0,0,.18);
+      border:1px solid rgba(255,255,255,.10); display:flex; align-items:center; justify-content:center; position:relative; }
+    .slot .label{ position:absolute; bottom:6px; left:8px; font-size:10px; color:rgba(255,255,255,.45); }
+
+    .item{ width:78%; height:78%; border-radius:18px; display:flex; align-items:center; justify-content:center;
+      font-weight:900; font-size:16px; letter-spacing:.6px; user-select:none; touch-action:none;
+      border:2px solid rgba(255,255,255,.25);
+      box-shadow: 0 10px 20px rgba(0,0,0,.35);
+    }
+    .ghost{ opacity:.35; filter: grayscale(1); }
+    .item[data-kind="A"]{ background: linear-gradient(180deg, rgba(255,204,102,.95), rgba(255,160,60,.75)); }
+    .item[data-kind="B"]{ background: linear-gradient(180deg, rgba(126,224,255,.95), rgba(56,170,255,.75)); }
+    .item[data-kind="C"]{ background: linear-gradient(180deg, rgba(185,255,126,.95), rgba(94,220,130,.75)); }
+    .item[data-kind="D"]{ background: linear-gradient(180deg, rgba(215,166,255,.95), rgba(150,90,255,.75)); }
+
+    .bins{ display:grid; grid-template-columns: repeat(2, 1fr); gap:10px; }
+    @media (max-width: 420px){ .bins{ grid-template-columns: 1fr; } }
+
+    .bin{ border-radius:16px; padding:10px; min-height:150px; position:relative;
+      background: rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.12); }
+    .bin h3{ margin:0 0 8px 0; font-size:13px; color:var(--muted); display:flex; justify-content:space-between; }
+    .bin .accept{ font-weight:900; color:var(--text); }
+    .bin .stack{ display:flex; gap:8px; flex-wrap:wrap; }
+    .mini{ width:40px; height:40px; border-radius:12px; display:flex; align-items:center; justify-content:center;
+      font-weight:900; border:2px solid rgba(255,255,255,.22); }
+    .bin[data-accept="A"] .mini{ background: rgba(255,204,102,.85); }
+    .bin[data-accept="B"] .mini{ background: rgba(126,224,255,.85); }
+    .bin[data-accept="C"] .mini{ background: rgba(185,255,126,.85); }
+    .bin[data-accept="D"] .mini{ background: rgba(215,166,255,.85); }
+
+    .toast{ margin-top:10px; font-size:12px; color:var(--muted); }
+
+    .dragLayer{ position:fixed; inset:0; pointer-events:none; }
+    .floating{ position:absolute; transform: translate(-50%,-50%); }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div>
+        <h1>Receipt Roll Sort</h1>
+        <div class="sub">Minimal HTML MVP — drag items to matching bins. Pack 3 to clear. Use <b>Unroll</b> to reveal hidden items.</div>
+      </div>
+      <div class="stats">
+        <div class="pill">Packed: <span id="packed">0</span></div>
+        <div class="pill">Mistakes: <span id="mistakes">0</span></div>
+        <div class="pill">Unrolls left: <span id="unrolls">3</span></div>
+        <div class="pill">Receipt left: <span id="left">12</span></div>
+      </div>
+    </header>
+
+    <div class="grid">
+      <section class="card">
+        <div class="how">
+          <div>
+            <div style="font-weight:800; margin-bottom:6px;">How to play</div>
+            <div class="sub">
+              1) Drag an item from the queue into the bin with the same letter.<br>
+              2) Get <b>3</b> in a bin to auto-pack (clears that bin).<br>
+              3) Tap <b>Unroll</b> to reveal one hidden future item.<br>
+              Win by packing everything on the receipt.
+            </div>
+          </div>
+        </div>
+
+        <div class="board">
+          <div class="receiptWrap">
+            <div class="receiptTop">
+              <div class="receiptTitle">Incoming queue (some hidden):</div>
+              <div class="btnRow">
+                <button id="unrollBtn" class="primary">Unroll</button>
+                <button id="undoBtn">Undo</button>
+                <button id="restartBtn" class="danger">Restart</button>
+              </div>
+            </div>
+            <div id="queue" class="queue" aria-label="Queue"></div>
+            <div id="toast" class="toast">Tip: aim to complete triples to free space.</div>
+          </div>
+
+          <div class="bins" aria-label="Bins">
+            <div class="bin" data-accept="A">
+              <h3><span>BIN</span> <span class="accept">A</span></h3>
+              <div class="stack" id="binA"></div>
+            </div>
+            <div class="bin" data-accept="B">
+              <h3><span>BIN</span> <span class="accept">B</span></h3>
+              <div class="stack" id="binB"></div>
+            </div>
+            <div class="bin" data-accept="C">
+              <h3><span>BIN</span> <span class="accept">C</span></h3>
+              <div class="stack" id="binC"></div>
+            </div>
+            <div class="bin" data-accept="D">
+              <h3><span>BIN</span> <span class="accept">D</span></h3>
+              <div class="stack" id="binD"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="card">
+        <div style="font-weight:800; margin-bottom:8px;">Design notes (for the Unity build)</div>
+        <div class="sub" style="line-height:1.5">
+          - This MVP tests the <b>clarity</b> of the loop: drag → bin → triple-pack → reveal next.<br>
+          - Add juice later: stamps, confetti, bin lid animation, haptics, sound.<br>
+          - Level design knobs: queue size, number of bins, unroll budget, hidden ratio.
+        </div>
+        <div style="height:10px"></div>
+        <div style="font-weight:800; margin-bottom:8px;">Target feel</div>
+        <div class="sub" style="line-height:1.5">
+          Calm, tidy, fast retries. A “perfect receipt” = finish with unrolls remaining.
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <div class="dragLayer" id="dragLayer"></div>
+
+  <script>
+    // --- Game state ---
+    const KINDS = ["A","B","C","D"]; // could be colors/categories
+
+    const state = {
+      receipt: [],      // full list of items to process (kinds)
+      revealed: 0,      // how many receipt items are currently revealed/available to queue
+      queueSize: 5,
+      unrolls: 3,
+      packed: 0,
+      mistakes: 0,
+      bins: {A:[], B:[], C:[], D:[]},
+      lastMove: null,   // for Undo
+      dragging: null
+    };
+
+    // Generate a small receipt with some structure so it feels solvable.
+    function generateReceipt(n=12){
+      // Start with 3 of each, then shuffle.
+      const base = [];
+      for (let i=0;i<n;i++) base.push(KINDS[i % KINDS.length]);
+      // Add a couple extra randoms to create planning.
+      for (let i=0;i<4;i++) base.push(KINDS[Math.floor(Math.random()*KINDS.length)]);
+      // Shuffle
+      for (let i=base.length-1;i>0;i--){
+        const j = Math.floor(Math.random()*(i+1));
+        [base[i], base[j]] = [base[j], base[i]];
+      }
+      return base;
+    }
+
+    // --- UI refs ---
+    const el = {
+      packed: document.getElementById('packed'),
+      mistakes: document.getElementById('mistakes'),
+      unrolls: document.getElementById('unrolls'),
+      left: document.getElementById('left'),
+      queue: document.getElementById('queue'),
+      toast: document.getElementById('toast'),
+      unrollBtn: document.getElementById('unrollBtn'),
+      undoBtn: document.getElementById('undoBtn'),
+      restartBtn: document.getElementById('restartBtn'),
+      dragLayer: document.getElementById('dragLayer'),
+      bins: {
+        A: document.getElementById('binA'),
+        B: document.getElementById('binB'),
+        C: document.getElementById('binC'),
+        D: document.getElementById('binD'),
+      }
+    };
+
+    function computeQueue(){
+      // Available items are the first `revealed` items of receipt.
+      // We consume from the front as player places items.
+      return state.receipt.slice(0, Math.min(state.queueSize, state.revealed));
+    }
+
+    function updateStats(){
+      el.packed.textContent = state.packed;
+      el.mistakes.textContent = state.mistakes;
+      el.unrolls.textContent = state.unrolls;
+      el.left.textContent = Math.max(0, state.receipt.length);
+      el.unrollBtn.disabled = state.unrolls <= 0 || state.revealed >= state.receipt.length;
+      el.undoBtn.disabled = !state.lastMove;
+    }
+
+    function renderBins(){
+      for (const k of KINDS){
+        const container = el.bins[k];
+        container.innerHTML = '';
+        for (let i=0;i<state.bins[k].length;i++){
+          const d = document.createElement('div');
+          d.className = 'mini';
+          d.textContent = k;
+          container.appendChild(d);
+        }
+      }
+    }
+
+    function renderQueue(){
+      el.queue.innerHTML = '';
+      const q = computeQueue();
+      // Show 5 slots, but some of the revealed items may still be hidden (fog-of-war).
+      // We'll hide every 2nd unrevealed slot visually.
+      for (let i=0;i<state.queueSize;i++){
+        const slot = document.createElement('div');
+        slot.className = 'slot';
+        const label = document.createElement('div');
+        label.className = 'label';
+        label.textContent = `#${i+1}`;
+        slot.appendChild(label);
+
+        if (i < q.length){
+          const kind = q[i];
+          const shouldHide = (i >= 2) && (Math.random() < 0.25); // light fog vibe
+          const item = document.createElement('div');
+          item.className = 'item' + (shouldHide ? ' ghost' : '');
+          item.dataset.kind = kind;
+          item.textContent = shouldHide ? '?' : kind;
+          item.dataset.index = String(i);
+          // drag
+          item.addEventListener('pointerdown', (ev)=>startDrag(ev, item));
+          slot.appendChild(item);
+        } else {
+          // empty slot
+        }
+        el.queue.appendChild(slot);
+      }
+    }
+
+    function setToast(msg, good=false){
+      el.toast.textContent = msg;
+      el.toast.style.color = good ? 'rgba(69,212,131,.95)' : 'rgba(170,176,214,.95)';
+    }
+
+    function checkPack(kind){
+      if (state.bins[kind].length >= 3){
+        state.bins[kind] = [];
+        state.packed += 3;
+        setToast(`Packed 3× ${kind}!`, true);
+      }
+    }
+
+    function winCheck(){
+      if (state.receipt.length === 0){
+        setToast('Receipt complete! Tap Restart for a new one.', true);
+      }
+    }
+
+    function consumeFromReceipt(queueIndex){
+      // Remove the item at `queueIndex` from the front slice.
+      // Since our queue is the first `revealed` items, removing index i means splicing receipt at i.
+      const kind = state.receipt[queueIndex];
+      state.receipt.splice(queueIndex, 1);
+      // Keep revealed aligned with receipt length.
+      state.revealed = Math.min(state.revealed, state.receipt.length);
+      return kind;
+    }
+
+    function placeItem(queueIndex, binKind){
+      const kind = state.receipt[queueIndex];
+      if (!kind) return;
+
+      // Save undo snapshot minimal
+      state.lastMove = {
+        queueIndex,
+        kind,
+        binKind,
+        prevReceipt: state.receipt.slice(),
+        prevRevealed: state.revealed,
+        prevBins: JSON.parse(JSON.stringify(state.bins)),
+        prevPacked: state.packed,
+        prevMistakes: state.mistakes,
+        prevUnrolls: state.unrolls,
+      };
+
+      if (binKind !== kind){
+        state.mistakes++;
+        setToast(`Wrong bin. ${kind} belongs in ${kind}.`, false);
+        updateStats();
+        return;
+      }
+
+      // Correct placement: consume + add to bin
+      consumeFromReceipt(queueIndex);
+      state.bins[binKind].push(kind);
+      checkPack(binKind);
+
+      // Auto-reveal to keep queue full (lightly)
+      if (state.revealed < state.receipt.length) state.revealed++;
+
+      updateAll();
+      winCheck();
+    }
+
+    // --- Drag & drop ---
+    function startDrag(ev, itemEl){
+      if (state.receipt.length === 0) return;
+      itemEl.setPointerCapture(ev.pointerId);
+      const idx = Number(itemEl.dataset.index);
+      state.dragging = {
+        index: idx,
+        kind: itemEl.dataset.kind,
+        pointerId: ev.pointerId,
+        floating: null
+      };
+
+      // Create floating copy
+      const f = document.createElement('div');
+      f.className = 'item floating';
+      f.dataset.kind = state.dragging.kind;
+      f.textContent = state.dragging.kind;
+      el.dragLayer.appendChild(f);
+      state.dragging.floating = f;
+      moveDrag(ev);
+
+      window.addEventListener('pointermove', moveDrag);
+      window.addEventListener('pointerup', endDrag, {once:true});
+    }
+
+    function moveDrag(ev){
+      if (!state.dragging) return;
+      state.dragging.floating.style.left = ev.clientX + 'px';
+      state.dragging.floating.style.top = ev.clientY + 'px';
+    }
+
+    function endDrag(ev){
+      if (!state.dragging) return;
+      window.removeEventListener('pointermove', moveDrag);
+
+      // Find bin under pointer
+      const bins = Array.from(document.querySelectorAll('.bin'));
+      const hit = bins.find(b => {
+        const r = b.getBoundingClientRect();
+        return ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom;
+      });
+
+      state.dragging.floating.remove();
+
+      if (hit){
+        const accept = hit.dataset.accept;
+        placeItem(state.dragging.index, accept);
+      }
+
+      state.dragging = null;
+    }
+
+    function undo(){
+      if (!state.lastMove) return;
+      const m = state.lastMove;
+      state.receipt = m.prevReceipt;
+      state.revealed = m.prevRevealed;
+      state.bins = m.prevBins;
+      state.packed = m.prevPacked;
+      state.mistakes = m.prevMistakes;
+      state.unrolls = m.prevUnrolls;
+      state.lastMove = null;
+      setToast('Undone.', false);
+      updateAll();
+    }
+
+    function unroll(){
+      if (state.unrolls <= 0) return;
+      if (state.revealed >= state.receipt.length) return;
+      state.unrolls--;
+      state.revealed = Math.min(state.receipt.length, state.revealed + 2);
+      setToast('You unrolled the receipt (revealed more items).', true);
+      updateAll();
+    }
+
+    function restart(){
+      state.receipt = generateReceipt(12);
+      state.revealed = 5;
+      state.queueSize = 5;
+      state.unrolls = 3;
+      state.packed = 0;
+      state.mistakes = 0;
+      state.bins = {A:[],B:[],C:[],D:[]};
+      state.lastMove = null;
+      state.dragging = null;
+      setToast('New receipt. Drag items into matching bins.', false);
+      updateAll();
+    }
+
+    function updateAll(){
+      updateStats();
+      renderQueue();
+      renderBins();
+    }
+
+    // Buttons
+    el.unrollBtn.addEventListener('click', unroll);
+    el.undoBtn.addEventListener('click', undo);
+    el.restartBtn.addEventListener('click', restart);
+
+    // Init
+    restart();
+  </script>
+</body>
+</html>
