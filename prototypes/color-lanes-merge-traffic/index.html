@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Color Lanes: Merge Traffic (HTML MVP)</title>
+  <style>
+    :root{
+      --bg:#0b1020; --panel:#151b33; --text:#eef2ff; --muted:#aab4df;
+      --shadow: 0 12px 28px rgba(0,0,0,.35);
+      --r:#ff5a7a; --g:#52e08a; --b:#6bd6ff; --y:#ffd166;
+    }
+    *{box-sizing:border-box; font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;}
+    body{margin:0; background: radial-gradient(1100px 700px at 30% -10%, #27306b 0%, var(--bg) 60%);
+      color:var(--text); min-height:100vh; display:flex; justify-content:center; padding:16px;}
+    .app{width:min(980px,100%); display:grid; gap:12px;}
+    header{display:flex; justify-content:space-between; align-items:flex-end; gap:12px; flex-wrap:wrap;}
+    h1{margin:0; font-size:18px;}
+    .sub{color:var(--muted); font-size:12px; max-width:70ch;}
+    .row{display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end;}
+    .pill{background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); padding:6px 10px;
+      border-radius:999px; font-size:12px; box-shadow:var(--shadow);}    
+
+    .grid{display:grid; gap:12px; grid-template-columns: 1.2fr .9fr;}
+    @media (max-width: 860px){ .grid{grid-template-columns:1fr;} }
+
+    .card{background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+      border:1px solid rgba(255,255,255,.10); border-radius:16px; padding:12px; box-shadow:var(--shadow);}    
+
+    .btns{display:flex; gap:8px; flex-wrap:wrap;}
+    button{appearance:none; border:none; border-radius:12px; padding:10px 12px; font-weight:800; font-size:13px;
+      color:var(--text); background: rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.14);
+      box-shadow: var(--shadow);}    
+    button:active{transform:translateY(1px);}    
+    .danger{background: linear-gradient(180deg, rgba(255,90,122,.30), rgba(255,90,122,.12)); border-color: rgba(255,90,122,.40);}    
+
+    .playArea{display:grid; gap:10px;}
+
+    .lanes{display:grid; gap:10px; grid-template-columns: repeat(4, 1fr);}    
+    @media (max-width: 420px){ .lanes{grid-template-columns: repeat(2, 1fr);} }
+
+    .lane{background: rgba(0,0,0,.22); border:1px solid rgba(255,255,255,.10); border-radius:14px; overflow:hidden;
+      position:relative; min-height:360px; display:flex; flex-direction:column;}    
+    .laneHeader{padding:10px; font-weight:900; font-size:12px; letter-spacing:.5px; display:flex; align-items:center; justify-content:space-between;}
+    .badge{font-weight:900; padding:3px 8px; border-radius:999px; border:1px solid rgba(255,255,255,.22); background: rgba(255,255,255,.08);}    
+    .road{flex:1; padding:10px; display:flex; flex-direction:column-reverse; gap:8px;}    
+
+    .car{height:54px; border-radius:14px; border:2px solid rgba(255,255,255,.22); position:relative;
+      display:flex; align-items:center; justify-content:center; font-weight:900; letter-spacing:.6px; user-select:none;
+      touch-action:none; box-shadow: 0 10px 18px rgba(0,0,0,.35);}    
+    .car::before,.car::after{content:""; position:absolute; bottom:6px; width:10px; height:10px; border-radius:50%; background: rgba(0,0,0,.35);}    
+    .car::before{left:10px;} .car::after{right:10px;}
+    .car[data-c="R"]{background: linear-gradient(180deg, rgba(255,90,122,.95), rgba(255,60,120,.70));}
+    .car[data-c="G"]{background: linear-gradient(180deg, rgba(82,224,138,.95), rgba(30,190,110,.70));}
+    .car[data-c="B"]{background: linear-gradient(180deg, rgba(107,214,255,.95), rgba(56,170,255,.70));}
+    .car[data-c="Y"]{background: linear-gradient(180deg, rgba(255,209,102,.95), rgba(255,170,70,.70));}
+
+    .toast{margin-top:6px; color:var(--muted); font-size:12px;}
+
+    .hint{color:var(--muted); font-size:12px; line-height:1.5;}
+    .good{color: rgba(82,224,138,.95);} .bad{color: rgba(255,90,122,.95);}    
+
+    .dragLayer{position:fixed; inset:0; pointer-events:none;}    
+    .floating{position:absolute; transform:translate(-50%,-50%);}    
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div>
+        <h1>Color Lanes: Merge Traffic</h1>
+        <div class="sub">Minimal HTML MVP — drag cars into lanes. Make <b>3-in-a-row</b> of the same color in a lane to merge-clear. Don’t overflow.</div>
+      </div>
+      <div class="row">
+        <div class="pill">Score: <span id="score">0</span></div>
+        <div class="pill">Best: <span id="best">0</span></div>
+        <div class="pill">Spawns: <span id="spawns">0</span></div>
+      </div>
+    </header>
+
+    <div class="grid">
+      <section class="card">
+        <div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start; flex-wrap:wrap;">
+          <div>
+            <div style="font-weight:900; margin-bottom:6px;">How to play</div>
+            <div class="hint">
+              1) Drag the newest car into any lane.<br>
+              2) If a lane ends up with <b>three consecutive cars</b> of the same color, they merge and disappear.<br>
+              3) If any lane reaches 7 cars, it’s game over.<br>
+              Tip: try to build triples near the bottom.
+            </div>
+          </div>
+          <div class="btns">
+            <button id="undoBtn">Undo</button>
+            <button id="restartBtn" class="danger">Restart</button>
+          </div>
+        </div>
+
+        <div class="playArea">
+          <div id="lanes" class="lanes" aria-label="Lanes"></div>
+          <div id="toast" class="toast">Drag the next car into a lane.</div>
+        </div>
+      </section>
+
+      <aside class="card">
+        <div style="font-weight:900; margin-bottom:8px;">Design notes</div>
+        <div class="hint">
+          - This MVP focuses on <b>instant readability</b> for playable ads: drag → lane → triple clear.<br>
+          - Easy knobs: lane count, overflow cap, spawn distribution, add blockers/locks later.
+        </div>
+        <div style="height:10px"></div>
+        <div style="font-weight:900; margin-bottom:8px;">Next car</div>
+        <div class="hint">Drag it into a lane:</div>
+        <div id="nextHolder" style="margin-top:10px;"></div>
+      </aside>
+    </div>
+  </div>
+
+  <div class="dragLayer" id="dragLayer"></div>
+
+  <script>
+    const COLORS = ["R","G","B","Y"];
+    const COLOR_NAME = {R:"Red", G:"Green", B:"Blue", Y:"Yellow"};
+
+    const MAX_HEIGHT = 7;
+    const LANE_COUNT = 4;
+
+    const state = {
+      lanes: Array.from({length: LANE_COUNT}, ()=>[]),
+      next: null,
+      score: 0,
+      spawns: 0,
+      best: Number(localStorage.getItem('clmt_best')||0),
+      last: null,
+      dragging: null,
+      over: false,
+    };
+
+    const el = {
+      lanes: document.getElementById('lanes'),
+      toast: document.getElementById('toast'),
+      score: document.getElementById('score'),
+      best: document.getElementById('best'),
+      spawns: document.getElementById('spawns'),
+      undoBtn: document.getElementById('undoBtn'),
+      restartBtn: document.getElementById('restartBtn'),
+      nextHolder: document.getElementById('nextHolder'),
+      dragLayer: document.getElementById('dragLayer'),
+    };
+
+    function randColor(){
+      // Slightly biased to create solvable triples.
+      const bag = ["R","G","B","Y","R","G","B","Y","R","G"]; // more R/G
+      return bag[Math.floor(Math.random()*bag.length)];
+    }
+
+    function setToast(msg, cls=""){
+      el.toast.className = 'toast ' + cls;
+      el.toast.textContent = msg;
+    }
+
+    function clone(obj){ return JSON.parse(JSON.stringify(obj)); }
+
+    function spawn(){
+      state.next = randColor();
+      state.spawns++;
+      renderNext();
+      renderStats();
+    }
+
+    function renderStats(){
+      el.score.textContent = state.score;
+      el.best.textContent = state.best;
+      el.spawns.textContent = state.spawns;
+      el.undoBtn.disabled = !state.last;
+    }
+
+    function renderNext(){
+      el.nextHolder.innerHTML = '';
+      const c = document.createElement('div');
+      c.className = 'car';
+      c.dataset.c = state.next;
+      c.textContent = state.next;
+      c.title = COLOR_NAME[state.next];
+      c.addEventListener('pointerdown', (ev)=>startDrag(ev, c));
+      el.nextHolder.appendChild(c);
+    }
+
+    function mergeCheck(laneIndex){
+      const lane = state.lanes[laneIndex];
+      // Look for any 3 consecutive same at the bottom (fast rule for this MVP).
+      if (lane.length < 3) return false;
+      const a = lane[lane.length-1], b = lane[lane.length-2], c = lane[lane.length-3];
+      if (a === b && b === c){
+        lane.splice(lane.length-3, 3);
+        state.score += 3;
+        setToast('Merged 3× ' + a + '!', 'good');
+        return true;
+      }
+      return false;
+    }
+
+    function gameOver(){
+      state.over = true;
+      state.best = Math.max(state.best, state.score);
+      localStorage.setItem('clmt_best', String(state.best));
+      renderStats();
+      setToast('Game over (lane overflow). Tap Restart.', 'bad');
+    }
+
+    function placeIntoLane(laneIndex){
+      if (state.over) return;
+      if (!state.next) return;
+
+      state.last = {
+        lanes: clone(state.lanes),
+        next: state.next,
+        score: state.score,
+        spawns: state.spawns,
+        over: state.over,
+      };
+
+      state.lanes[laneIndex].push(state.next);
+      state.next = null;
+
+      // Merge chain: keep checking bottom triple.
+      while (mergeCheck(laneIndex)){}
+
+      // Overflow check
+      if (state.lanes[laneIndex].length >= MAX_HEIGHT){
+        renderLanes();
+        gameOver();
+        return;
+      }
+
+      renderLanes();
+      spawn();
+    }
+
+    function undo(){
+      if (!state.last) return;
+      state.lanes = state.last.lanes;
+      state.next = state.last.next;
+      state.score = state.last.score;
+      state.spawns = state.last.spawns;
+      state.over = state.last.over;
+      state.last = null;
+      setToast('Undone.', '');
+      renderAll();
+    }
+
+    function restart(){
+      state.lanes = Array.from({length: LANE_COUNT}, ()=>[]);
+      state.next = null;
+      state.score = 0;
+      state.spawns = 0;
+      state.last = null;
+      state.over = false;
+      setToast('Drag the next car into a lane.', '');
+      renderAll();
+      spawn();
+    }
+
+    function renderLanes(){
+      el.lanes.innerHTML = '';
+      for (let i=0;i<LANE_COUNT;i++){
+        const laneEl = document.createElement('div');
+        laneEl.className = 'lane';
+        laneEl.dataset.i = String(i);
+
+        const head = document.createElement('div');
+        head.className = 'laneHeader';
+        head.innerHTML = `<span>LANE ${i+1}</span><span class="badge">${state.lanes[i].length}/${MAX_HEIGHT}</span>`;
+        laneEl.appendChild(head);
+
+        const road = document.createElement('div');
+        road.className = 'road';
+        // bottom -> top
+        for (let j=0;j<state.lanes[i].length;j++){
+          const c = state.lanes[i][j];
+          const car = document.createElement('div');
+          car.className = 'car';
+          car.dataset.c = c;
+          car.textContent = c;
+          road.appendChild(car);
+        }
+        laneEl.appendChild(road);
+        el.lanes.appendChild(laneEl);
+      }
+    }
+
+    // Drag and drop (next car only)
+    function startDrag(ev, carEl){
+      if (state.over) return;
+      if (!state.next) return;
+      carEl.setPointerCapture(ev.pointerId);
+      state.dragging = { pointerId: ev.pointerId, floating: null };
+
+      const f = document.createElement('div');
+      f.className = 'car floating';
+      f.dataset.c = state.next;
+      f.textContent = state.next;
+      el.dragLayer.appendChild(f);
+      state.dragging.floating = f;
+
+      moveDrag(ev);
+      window.addEventListener('pointermove', moveDrag);
+      window.addEventListener('pointerup', endDrag, {once:true});
+    }
+
+    function moveDrag(ev){
+      if (!state.dragging) return;
+      state.dragging.floating.style.left = ev.clientX + 'px';
+      state.dragging.floating.style.top = ev.clientY + 'px';
+    }
+
+    function endDrag(ev){
+      if (!state.dragging) return;
+      window.removeEventListener('pointermove', moveDrag);
+
+      const lanes = Array.from(document.querySelectorAll('.lane'));
+      const hit = lanes.find(l => {
+        const r = l.getBoundingClientRect();
+        return ev.clientX>=r.left && ev.clientX<=r.right && ev.clientY>=r.top && ev.clientY<=r.bottom;
+      });
+
+      state.dragging.floating.remove();
+      state.dragging = null;
+
+      if (hit){
+        placeIntoLane(Number(hit.dataset.i));
+      }
+    }
+
+    function renderAll(){
+      renderLanes();
+      renderNext();
+      renderStats();
+    }
+
+    el.undoBtn.addEventListener('click', undo);
+    el.restartBtn.addEventListener('click', restart);
+
+    // Init
+    renderAll();
+    restart();
+  </script>
+</body>
+</html>
