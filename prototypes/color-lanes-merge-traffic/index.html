@@ -9,6 +9,7 @@
       --bg:#0b1020; --panel:#151b33; --text:#eef2ff; --muted:#aab4df;
       --shadow: 0 12px 28px rgba(0,0,0,.35);
       --r:#ff5a7a; --g:#52e08a; --b:#6bd6ff; --y:#ffd166;
+      --danger:#ff5a7a;
     }
     *{box-sizing:border-box; font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;}
     body{margin:0; background: radial-gradient(1100px 700px at 30% -10%, #27306b 0%, var(--bg) 60%);
@@ -40,16 +41,62 @@
     @media (max-width: 420px){ .lanes{grid-template-columns: repeat(2, 1fr);} }
 
     .lane{background: rgba(0,0,0,.22); border:1px solid rgba(255,255,255,.10); border-radius:14px; overflow:hidden;
-      position:relative; min-height:360px; display:flex; flex-direction:column;}    
+      position:relative; min-height:380px; display:flex; flex-direction:column;}    
     .laneHeader{padding:10px; font-weight:900; font-size:12px; letter-spacing:.5px; display:flex; align-items:center; justify-content:space-between;}
     .badge{font-weight:900; padding:3px 8px; border-radius:999px; border:1px solid rgba(255,255,255,.22); background: rgba(255,255,255,.08);}    
-    .road{flex:1; padding:10px; display:flex; flex-direction:column-reverse; gap:8px;}    
 
-    .car{height:54px; border-radius:14px; border:2px solid rgba(255,255,255,.22); position:relative;
-      display:flex; align-items:center; justify-content:center; font-weight:900; letter-spacing:.6px; user-select:none;
-      touch-action:none; box-shadow: 0 10px 18px rgba(0,0,0,.35);}    
+    .roadWrap{flex:1; position:relative; padding:10px;}
+
+    /* Right-side spawn lane */
+    .spawnLane{
+      position:absolute;
+      right:8px;
+      top:8px;
+      bottom:8px;
+      width:44px;
+      border-radius:14px;
+      background: rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.10);
+      overflow:hidden;
+    }
+    .spawnLane::after{
+      content:"";
+      position:absolute;
+      inset:8px;
+      border-radius:10px;
+      border:1px dashed rgba(255,255,255,.18);
+      opacity:0.6;
+      pointer-events:none;
+    }
+
+    /* Park area (top) */
+    .parkArea{
+      position:absolute;
+      left:8px;
+      right:60px;
+      top:8px;
+      height:320px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.08);
+      background: rgba(0,0,0,.10);
+      overflow:hidden;
+    }
+
+    .car{
+      width:40px;
+      height:54px;
+      border-radius:14px;
+      border:2px solid rgba(255,255,255,.22);
+      position:absolute;
+      display:flex; align-items:center; justify-content:center;
+      font-weight:900; letter-spacing:.6px;
+      user-select:none;
+      touch-action:none;
+      box-shadow: 0 10px 18px rgba(0,0,0,.35);
+    }
     .car::before,.car::after{content:""; position:absolute; bottom:6px; width:10px; height:10px; border-radius:50%; background: rgba(0,0,0,.35);}    
-    .car::before{left:10px;} .car::after{right:10px;}
+    .car::before{left:6px;} .car::after{right:6px;}
+
     .car[data-c="R"]{background: linear-gradient(180deg, rgba(255,90,122,.95), rgba(255,60,120,.70));}
     .car[data-c="G"]{background: linear-gradient(180deg, rgba(82,224,138,.95), rgba(30,190,110,.70));}
     .car[data-c="B"]{background: linear-gradient(180deg, rgba(107,214,255,.95), rgba(56,170,255,.70));}
@@ -58,10 +105,10 @@
     .toast{margin-top:6px; color:var(--muted); font-size:12px;}
 
     .hint{color:var(--muted); font-size:12px; line-height:1.5;}
-    .good{color: rgba(82,224,138,.95);} .bad{color: rgba(255,90,122,.95);}    
+    .bad{color: rgba(255,90,122,.95);}    
 
-    .dragLayer{position:fixed; inset:0; pointer-events:none;}    
-    .floating{position:absolute; transform:translate(-50%,-50%);}    
+    .shake{animation: shake 220ms ease-out;}
+    @keyframes shake{0%{transform:translateX(0)}25%{transform:translateX(-6px)}50%{transform:translateX(6px)}75%{transform:translateX(-3px)}100%{transform:translateX(0)}}
   </style>
 </head>
 <body>
@@ -69,12 +116,12 @@
     <header>
       <div>
         <h1>Color Lanes: Merge Traffic</h1>
-        <div class="sub">Minimal HTML MVP — drag cars into lanes. Make <b>3-in-a-row</b> of the same color in a lane to merge-clear. Don’t overflow.</div>
+        <div class="sub">MVP iteration — cars spawn on the right thin road and drive bottom → top. Drag them into lanes. If a lane jams (queue reaches <b>5</b>), you lose.</div>
       </div>
       <div class="row">
         <div class="pill">Score: <span id="score">0</span></div>
         <div class="pill">Best: <span id="best">0</span></div>
-        <div class="pill">Spawns: <span id="spawns">0</span></div>
+        <div class="pill">Speed: <span id="speed">1.00x</span></div>
       </div>
     </header>
 
@@ -84,56 +131,55 @@
           <div>
             <div style="font-weight:900; margin-bottom:6px;">How to play</div>
             <div class="hint">
-              1) Drag the newest car into any lane.<br>
-              2) If a lane ends up with <b>three consecutive cars</b> of the same color, they merge and disappear.<br>
-              3) If any lane reaches 7 cars, it’s game over.<br>
-              Tip: try to build triples near the bottom.
+              1) Cars spawn on the right-side thin road and move upward.<br>
+              2) Drag a moving car into any of the 4 lanes.<br>
+              3) Cars park at the top and form a queue (traffic jam).<br>
+              4) If any lane reaches <b>5</b> parked cars, you lose.
             </div>
           </div>
           <div class="btns">
-            <button id="undoBtn">Undo</button>
             <button id="restartBtn" class="danger">Restart</button>
           </div>
         </div>
 
         <div class="playArea">
           <div id="lanes" class="lanes" aria-label="Lanes"></div>
-          <div id="toast" class="toast">Drag the next car into a lane.</div>
+          <div id="toast" class="toast">Drag cars into lanes. Don’t let a lane reach 5.</div>
         </div>
       </section>
 
       <aside class="card">
         <div style="font-weight:900; margin-bottom:8px;">Design notes</div>
         <div class="hint">
-          - This MVP focuses on <b>instant readability</b> for playable ads: drag → lane → triple clear.<br>
-          - Easy knobs: lane count, overflow cap, spawn distribution, add blockers/locks later.
+          - This iteration focuses on <b>traffic jam pressure</b> and drag clarity.<br>
+          - Next: add merging (3-in-a-row), lane locks, and powerups.
         </div>
-        <div style="height:10px"></div>
-        <div style="font-weight:900; margin-bottom:8px;">Next car</div>
-        <div class="hint">Drag it into a lane:</div>
-        <div id="nextHolder" style="margin-top:10px;"></div>
       </aside>
     </div>
   </div>
 
-  <div class="dragLayer" id="dragLayer"></div>
-
   <script>
     const COLORS = ["R","G","B","Y"];
-    const COLOR_NAME = {R:"Red", G:"Green", B:"Blue", Y:"Yellow"};
 
-    const MAX_HEIGHT = 7;
+    // Gameplay knobs
     const LANE_COUNT = 4;
+    const MAX_JAM = 5;
+    const SPAWN_INTERVAL_MS_START = 1200;
+    const SPAWN_INTERVAL_MS_MIN = 550;
+    const SPEED_PX_PER_S_START = 85;
+    const SPEED_PX_PER_S_MAX = 170;
 
     const state = {
-      lanes: Array.from({length: LANE_COUNT}, ()=>[]),
-      next: null,
+      parked: Array.from({length: LANE_COUNT}, () => []),
+      moving: [],
       score: 0,
-      spawns: 0,
-      best: Number(localStorage.getItem('clmt_best')||0),
-      last: null,
-      dragging: null,
+      best: Number(localStorage.getItem('clmt2_best') || 0),
       over: false,
+      tLast: 0,
+      tSpawn: 0,
+      speed: 1.0,
+      nextId: 1,
+      draggingId: null,
     };
 
     const el = {
@@ -141,127 +187,196 @@
       toast: document.getElementById('toast'),
       score: document.getElementById('score'),
       best: document.getElementById('best'),
-      spawns: document.getElementById('spawns'),
-      undoBtn: document.getElementById('undoBtn'),
+      speed: document.getElementById('speed'),
       restartBtn: document.getElementById('restartBtn'),
-      nextHolder: document.getElementById('nextHolder'),
-      dragLayer: document.getElementById('dragLayer'),
     };
 
-    function randColor(){
-      // Slightly biased to create solvable triples.
-      const bag = ["R","G","B","Y","R","G","B","Y","R","G"]; // more R/G
-      return bag[Math.floor(Math.random()*bag.length)];
-    }
-
-    function setToast(msg, cls=""){
+    function setToast(msg, cls=''){
       el.toast.className = 'toast ' + cls;
       el.toast.textContent = msg;
     }
 
-    function clone(obj){ return JSON.parse(JSON.stringify(obj)); }
-
-    function spawn(){
-      state.next = randColor();
-      state.spawns++;
-      renderNext();
-      renderStats();
+    function randColor(){
+      return COLORS[Math.floor(Math.random()*COLORS.length)];
     }
 
-    function renderStats(){
+    function renderHUD(){
       el.score.textContent = state.score;
       el.best.textContent = state.best;
-      el.spawns.textContent = state.spawns;
-      el.undoBtn.disabled = !state.last;
+      el.speed.textContent = state.speed.toFixed(2) + 'x';
     }
 
-    function renderNext(){
-      el.nextHolder.innerHTML = '';
-      const c = document.createElement('div');
-      c.className = 'car';
-      c.dataset.c = state.next;
-      c.textContent = state.next;
-      c.title = COLOR_NAME[state.next];
-      c.addEventListener('pointerdown', (ev)=>startDrag(ev, c));
-      el.nextHolder.appendChild(c);
+    function laneSpawnInterval(){
+      const t = Math.min(1, state.score / 60);
+      return SPAWN_INTERVAL_MS_START + (SPAWN_INTERVAL_MS_MIN - SPAWN_INTERVAL_MS_START) * t;
     }
 
-    function mergeCheck(laneIndex){
-      const lane = state.lanes[laneIndex];
-      // Look for any 3 consecutive same at the bottom (fast rule for this MVP).
-      if (lane.length < 3) return false;
-      const a = lane[lane.length-1], b = lane[lane.length-2], c = lane[lane.length-3];
-      if (a === b && b === c){
-        lane.splice(lane.length-3, 3);
-        state.score += 3;
-        setToast('Merged 3× ' + a + '!', 'good');
-        return true;
-      }
-      return false;
+    function moveSpeed(){
+      const t = Math.min(1, state.score / 80);
+      return SPEED_PX_PER_S_START + (SPEED_PX_PER_S_MAX - SPEED_PX_PER_S_START) * t;
     }
 
-    function gameOver(){
+    function gameOver(lane){
       state.over = true;
       state.best = Math.max(state.best, state.score);
-      localStorage.setItem('clmt_best', String(state.best));
-      renderStats();
-      setToast('Game over (lane overflow). Tap Restart.', 'bad');
+      localStorage.setItem('clmt2_best', String(state.best));
+      renderHUD();
+      setToast(`Game over: Lane ${lane+1} jammed (${MAX_JAM}).`, 'bad');
+      const laneEl = document.querySelector(`.lane[data-i="${lane}"]`);
+      laneEl?.classList.add('shake');
+      setTimeout(()=>laneEl?.classList.remove('shake'), 260);
     }
 
-    function placeIntoLane(laneIndex){
-      if (state.over) return;
-      if (!state.next) return;
+    function spawnCar(laneEl, laneIndex){
+      const roadEl = laneEl.querySelector('.spawnLane');
+      const roadH = roadEl.getBoundingClientRect().height;
 
-      state.last = {
-        lanes: clone(state.lanes),
-        next: state.next,
-        score: state.score,
-        spawns: state.spawns,
-        over: state.over,
+      const car = {
+        id: 'c' + (state.nextId++),
+        c: randColor(),
+        lane: laneIndex,
+        yPx: roadH + 70,
       };
+      state.moving.push(car);
 
-      state.lanes[laneIndex].push(state.next);
-      state.next = null;
+      const carEl = document.createElement('div');
+      carEl.className = 'car';
+      carEl.dataset.id = car.id;
+      carEl.dataset.c = car.c;
+      carEl.textContent = car.c;
+      carEl.style.left = '2px';
+      carEl.style.top = '0px';
+      carEl.addEventListener('pointerdown', (ev) => startDrag(ev, car.id));
+      roadEl.appendChild(carEl);
+      positionMovingCarElement(car, carEl, roadEl);
+    }
 
-      // Merge chain: keep checking bottom triple.
-      while (mergeCheck(laneIndex)){}
+    function positionMovingCarElement(car, carEl, roadEl){
+      const h = roadEl.getBoundingClientRect().height;
+      const yTop = Math.max(-80, h - car.yPx);
+      carEl.style.transform = `translateY(${yTop}px)`;
+    }
 
-      // Overflow check
-      if (state.lanes[laneIndex].length >= MAX_HEIGHT){
-        renderLanes();
-        gameOver();
-        return;
+    function renderParkedLane(laneIndex){
+      const laneEl = document.querySelector(`.lane[data-i="${laneIndex}"]`);
+      const badge = laneEl.querySelector('.badge');
+      badge.textContent = `${state.parked[laneIndex].length}/${MAX_JAM}`;
+
+      const parkEl = laneEl.querySelector('.parkArea');
+      parkEl.innerHTML = '';
+
+      const topPad = 10;
+      const spacing = 58;
+      for (let i=0;i<state.parked[laneIndex].length;i++){
+        const c = state.parked[laneIndex][i];
+        const carEl = document.createElement('div');
+        carEl.className = 'car';
+        carEl.dataset.c = c;
+        carEl.textContent = c;
+        carEl.style.left = '10px';
+        carEl.style.top = (topPad + i*spacing) + 'px';
+        parkEl.appendChild(carEl);
+      }
+    }
+
+    function parkCar(car){
+      const laneEl = document.querySelector(`.lane[data-i="${car.lane}"]`);
+      const roadEl = laneEl.querySelector('.spawnLane');
+      const carEl = roadEl.querySelector(`.car[data-id="${car.id}"]`);
+      carEl?.remove();
+
+      state.parked[car.lane].push(car.c);
+      state.score += 1;
+      renderParkedLane(car.lane);
+      renderHUD();
+
+      if (state.parked[car.lane].length >= MAX_JAM) gameOver(car.lane);
+    }
+
+    function startDrag(ev, carId){
+      if (state.over) return;
+      const car = state.moving.find(x=>x.id===carId);
+      if (!car) return;
+
+      state.draggingId = carId;
+      const carEl = document.querySelector(`.car[data-id="${carId}"]`);
+      if (!carEl) return;
+      carEl.setPointerCapture(ev.pointerId);
+
+      window.addEventListener('pointermove', onDragMove);
+      window.addEventListener('pointerup', onDragEnd, {once:true});
+    }
+
+    function onDragMove(ev){
+      if (!state.draggingId) return;
+      const car = state.moving.find(x=>x.id===state.draggingId);
+      if (!car) return;
+
+      const lanes = Array.from(document.querySelectorAll('.lane'));
+      const hit = lanes.find(l => {
+        const r = l.getBoundingClientRect();
+        return ev.clientX>=r.left && ev.clientX<=r.right && ev.clientY>=r.top && ev.clientY<=r.bottom;
+      });
+      if (hit){
+        car.lane = Number(hit.dataset.i);
+        const currentRoad = document.querySelector(`.lane[data-i="${car.lane}"] .spawnLane`);
+        const existing = document.querySelector(`.car[data-id="${car.id}"]`);
+        if (existing && currentRoad && existing.parentElement !== currentRoad){
+          currentRoad.appendChild(existing);
+        }
+      }
+    }
+
+    function onDragEnd(){
+      window.removeEventListener('pointermove', onDragMove);
+      state.draggingId = null;
+    }
+
+    function tick(now){
+      if (!state.tLast) state.tLast = now;
+      const dt = Math.min(40, now - state.tLast);
+      state.tLast = now;
+
+      if (!state.over){
+        if (!state.tSpawn) state.tSpawn = now;
+        const interval = laneSpawnInterval();
+        if (now - state.tSpawn >= interval){
+          state.tSpawn = now;
+          const laneIndex = Math.floor(Math.random()*LANE_COUNT);
+          const laneEl = document.querySelector(`.lane[data-i="${laneIndex}"]`);
+          spawnCar(laneEl, laneIndex);
+        }
+
+        const v = moveSpeed() * (dt/1000);
+        for (const car of state.moving){
+          car.yPx += v;
+        }
+
+        for (let i=state.moving.length-1; i>=0; i--){
+          const car = state.moving[i];
+          const laneEl = document.querySelector(`.lane[data-i="${car.lane}"]`);
+          const roadEl = laneEl.querySelector('.spawnLane');
+          const carEl = roadEl.querySelector(`.car[data-id="${car.id}"]`);
+          if (!carEl) continue;
+
+          positionMovingCarElement(car, carEl, roadEl);
+
+          const h = roadEl.getBoundingClientRect().height;
+          const yTop = h - car.yPx;
+          if (yTop <= 10){
+            state.moving.splice(i,1);
+            parkCar(car);
+          }
+        }
+
+        state.speed = moveSpeed() / SPEED_PX_PER_S_START;
+        renderHUD();
       }
 
-      renderLanes();
-      spawn();
+      requestAnimationFrame(tick);
     }
 
-    function undo(){
-      if (!state.last) return;
-      state.lanes = state.last.lanes;
-      state.next = state.last.next;
-      state.score = state.last.score;
-      state.spawns = state.last.spawns;
-      state.over = state.last.over;
-      state.last = null;
-      setToast('Undone.', '');
-      renderAll();
-    }
-
-    function restart(){
-      state.lanes = Array.from({length: LANE_COUNT}, ()=>[]);
-      state.next = null;
-      state.score = 0;
-      state.spawns = 0;
-      state.last = null;
-      state.over = false;
-      setToast('Drag the next car into a lane.', '');
-      renderAll();
-      spawn();
-    }
-
-    function renderLanes(){
+    function render(){
       el.lanes.innerHTML = '';
       for (let i=0;i<LANE_COUNT;i++){
         const laneEl = document.createElement('div');
@@ -270,80 +385,49 @@
 
         const head = document.createElement('div');
         head.className = 'laneHeader';
-        head.innerHTML = `<span>LANE ${i+1}</span><span class="badge">${state.lanes[i].length}/${MAX_HEIGHT}</span>`;
+        head.innerHTML = `<span>LANE ${i+1}</span><span class="badge">0/${MAX_JAM}</span>`;
         laneEl.appendChild(head);
 
-        const road = document.createElement('div');
-        road.className = 'road';
-        // bottom -> top
-        for (let j=0;j<state.lanes[i].length;j++){
-          const c = state.lanes[i][j];
-          const car = document.createElement('div');
-          car.className = 'car';
-          car.dataset.c = c;
-          car.textContent = c;
-          road.appendChild(car);
-        }
-        laneEl.appendChild(road);
+        const wrap = document.createElement('div');
+        wrap.className = 'roadWrap';
+
+        const park = document.createElement('div');
+        park.className = 'parkArea';
+        wrap.appendChild(park);
+
+        const spawn = document.createElement('div');
+        spawn.className = 'spawnLane';
+        wrap.appendChild(spawn);
+
+        laneEl.appendChild(wrap);
         el.lanes.appendChild(laneEl);
       }
+
+      for (let i=0;i<LANE_COUNT;i++) renderParkedLane(i);
+      renderHUD();
     }
 
-    // Drag and drop (next car only)
-    function startDrag(ev, carEl){
-      if (state.over) return;
-      if (!state.next) return;
-      carEl.setPointerCapture(ev.pointerId);
-      state.dragging = { pointerId: ev.pointerId, floating: null };
+    function restart(){
+      state.parked = Array.from({length: LANE_COUNT}, ()=>[]);
+      state.moving = [];
+      state.score = 0;
+      state.over = false;
+      state.tLast = 0;
+      state.tSpawn = 0;
+      state.speed = 1.0;
+      state.nextId = 1;
+      state.draggingId = null;
 
-      const f = document.createElement('div');
-      f.className = 'car floating';
-      f.dataset.c = state.next;
-      f.textContent = state.next;
-      el.dragLayer.appendChild(f);
-      state.dragging.floating = f;
-
-      moveDrag(ev);
-      window.addEventListener('pointermove', moveDrag);
-      window.addEventListener('pointerup', endDrag, {once:true});
+      setToast('Drag cars into lanes. Don’t let a lane reach 5.', '');
+      document.querySelectorAll('.spawnLane').forEach(x => x.innerHTML = '');
+      render();
     }
 
-    function moveDrag(ev){
-      if (!state.dragging) return;
-      state.dragging.floating.style.left = ev.clientX + 'px';
-      state.dragging.floating.style.top = ev.clientY + 'px';
-    }
-
-    function endDrag(ev){
-      if (!state.dragging) return;
-      window.removeEventListener('pointermove', moveDrag);
-
-      const lanes = Array.from(document.querySelectorAll('.lane'));
-      const hit = lanes.find(l => {
-        const r = l.getBoundingClientRect();
-        return ev.clientX>=r.left && ev.clientX<=r.right && ev.clientY>=r.top && ev.clientY<=r.bottom;
-      });
-
-      state.dragging.floating.remove();
-      state.dragging = null;
-
-      if (hit){
-        placeIntoLane(Number(hit.dataset.i));
-      }
-    }
-
-    function renderAll(){
-      renderLanes();
-      renderNext();
-      renderStats();
-    }
-
-    el.undoBtn.addEventListener('click', undo);
     el.restartBtn.addEventListener('click', restart);
 
-    // Init
-    renderAll();
+    render();
     restart();
+    requestAnimationFrame(tick);
   </script>
 </body>
 </html>
