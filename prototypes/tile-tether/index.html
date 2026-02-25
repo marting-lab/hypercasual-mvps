@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Tile Tether — MVP</title>
+  <style>
+    :root{--bg:#0e0f14;--panel:#171923;--ink:#e9ecff;--muted:#a7acc7;--grid:#2a2e40;--ok:#45e3a8}
+    html,body{height:100%; margin:0; background:var(--bg); color:var(--ink); font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;}
+    .wrap{display:flex; flex-direction:column; min-height:100%;}
+    header{padding:14px 14px 8px;}
+    h1{font-size:18px; margin:0 0 6px; font-weight:700; letter-spacing:0.2px}
+    .sub{color:var(--muted); font-size:13px}
+    .panel{margin:10px 12px; padding:10px 12px; background:var(--panel); border:1px solid #23263a; border-radius:12px;}
+    .row{display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between}
+    button{background:#252a42; color:var(--ink); border:1px solid #32385a; border-radius:10px; padding:10px 12px; font-weight:650}
+    button:active{transform:translateY(1px)}
+    .stat{font-size:13px; color:var(--muted)}
+    .ok{color:var(--ok); font-weight:700}
+    .game{flex:1; display:flex; align-items:center; justify-content:center; padding:10px 10px 16px;}
+    canvas{touch-action:none; background:#0b0c11; border:1px solid #23263a; border-radius:14px;}
+    .how{font-size:13px; color:var(--muted); margin:8px 0 0; line-height:1.35}
+    a{color:#9bd0ff}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Tile Tether (MVP)</h1>
+    <div class="sub">Connect matching anchors by drawing paths on the grid. Fill every cell to win.</div>
+  </header>
+
+  <div class="panel">
+    <div class="row">
+      <div class="stat">
+        Level: <span id="levelName"></span> · Filled: <span id="filledPct"></span> · <span id="winText"></span>
+      </div>
+      <div class="row">
+        <button id="resetBtn">Reset</button>
+        <button id="nextBtn">Next</button>
+      </div>
+    </div>
+    <div class="how">
+      <strong>How to play:</strong> Touch an anchor dot, then drag to adjacent cells to draw. Paths can’t overlap. Drag back to erase. Connect all pairs and cover the whole board.
+    </div>
+  </div>
+
+  <div class="game">
+    <canvas id="c" width="420" height="520" aria-label="Tile Tether board" role="img"></canvas>
+  </div>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const levelNameEl = document.getElementById('levelName');
+  const filledPctEl = document.getElementById('filledPct');
+  const winTextEl = document.getElementById('winText');
+
+  const levels = [
+    {
+      name: 'Warmup 6×6',
+      w: 6, h: 6,
+      pairs: [
+        { id: 'A', color: '#ff4d6d', a: [0,0], b: [5,5] },
+        { id: 'B', color: '#4dd7ff', a: [5,0], b: [0,5] },
+        { id: 'C', color: '#ffd166', a: [2,1], b: [3,4] },
+      ],
+      blocks: [[2,2],[3,2],[2,3],[3,3]]
+    },
+    {
+      name: 'Cross 7×7',
+      w: 7, h: 7,
+      pairs: [
+        { id: 'A', color: '#7c5cff', a: [0,3], b: [6,3] },
+        { id: 'B', color: '#45e3a8', a: [3,0], b: [3,6] },
+        { id: 'C', color: '#ff8fab', a: [1,1], b: [5,5] },
+      ],
+      blocks: [[2,3],[4,3],[3,2],[3,4]]
+    },
+    {
+      name: 'Tight 6×8',
+      w: 6, h: 8,
+      pairs: [
+        { id: 'A', color: '#ffb703', a: [0,1], b: [5,6] },
+        { id: 'B', color: '#00b4d8', a: [5,1], b: [0,6] },
+        { id: 'C', color: '#f72585', a: [2,0], b: [2,7] },
+      ],
+      blocks: [[1,3],[2,3],[3,3],[1,4],[2,4],[3,4]]
+    },
+  ];
+
+  let levelIdx = 0;
+  let state;
+
+  function key(x,y){ return `${x},${y}`; }
+
+  function loadLevel(i){
+    levelIdx = (i + levels.length) % levels.length;
+    const L = levels[levelIdx];
+
+    // Resize canvas to fit screen nicely (portrait).
+    const maxW = Math.min(window.innerWidth - 20, 520);
+    const maxH = Math.min(window.innerHeight - 220, 720);
+    const cell = Math.floor(Math.min(maxW / L.w, maxH / L.h));
+    const pad = 18;
+    canvas.width  = pad*2 + cell*L.w;
+    canvas.height = pad*2 + cell*L.h;
+
+    state = {
+      L, cell, pad,
+      blocks: new Set(L.blocks.map(([x,y]) => key(x,y))),
+      anchors: new Map(), // cellKey -> pairId
+      pairById: new Map(),
+      paths: new Map(), // pairId -> array of [x,y]
+      owner: new Map(), // cellKey -> pairId
+      drawing: null, // {pairId, fromAnchorKey}
+      won: false,
+    };
+
+    for(const p of L.pairs){
+      state.pairById.set(p.id, p);
+      state.anchors.set(key(...p.a), p.id);
+      state.anchors.set(key(...p.b), p.id);
+      state.paths.set(p.id, []);
+    }
+
+    // Place anchors as owned cells so overlaps are prevented.
+    for(const [k, pid] of state.anchors.entries()) state.owner.set(k, pid);
+
+    levelNameEl.textContent = L.name;
+    render();
+  }
+
+  function inBounds(x,y){
+    return x>=0 && y>=0 && x<state.L.w && y<state.L.h;
+  }
+
+  function cellFromPoint(px,py){
+    const {pad, cell} = state;
+    const x = Math.floor((px - pad) / cell);
+    const y = Math.floor((py - pad) / cell);
+    if(!inBounds(x,y)) return null;
+    const rx = pad + x*cell;
+    const ry = pad + y*cell;
+    if(px < rx || py < ry || px > rx + cell || py > ry + cell) return null;
+    return [x,y];
+  }
+
+  function neighbors([x,y]){
+    return [[x+1,y],[x-1,y],[x,y+1],[x,y-1]].filter(([a,b]) => inBounds(a,b));
+  }
+
+  function isBlocked(x,y){
+    return state.blocks.has(key(x,y));
+  }
+
+  function clearPath(pairId){
+    const path = state.paths.get(pairId) || [];
+    for(const [x,y] of path){
+      const k = key(x,y);
+      // Don't clear anchors (they're always owned)
+      if(!state.anchors.has(k)) state.owner.delete(k);
+    }
+    state.paths.set(pairId, []);
+  }
+
+  function claimCell(pairId, x,y){
+    const k = key(x,y);
+    if(isBlocked(x,y)) return false;
+    const own = state.owner.get(k);
+    if(own && own !== pairId) return false;
+    state.owner.set(k, pairId);
+    return true;
+  }
+
+  function startDrawingAt(cell){
+    const k = key(...cell);
+    const pid = state.anchors.get(k);
+    if(!pid) return false;
+    // Start from this anchor; clear existing path for this pair.
+    clearPath(pid);
+    state.drawing = { pairId: pid, last: cell, startedFrom: k };
+    return true;
+  }
+
+  function extendTo(cell){
+    if(!state.drawing || state.won) return;
+    const { pairId } = state.drawing;
+    const [x,y] = cell;
+
+    const path = state.paths.get(pairId);
+    const last = state.drawing.last;
+
+    // Must be adjacent move.
+    const dx = Math.abs(x - last[0]);
+    const dy = Math.abs(y - last[1]);
+    if(dx + dy !== 1) return;
+
+    // Can't draw into blocked.
+    if(isBlocked(x,y)) return;
+
+    const k = key(x,y);
+
+    // If moving back over previous cell, erase (backtrack).
+    if(path.length >= 2){
+      const prev = path[path.length-2];
+      if(prev[0] === x && prev[1] === y){
+        const removed = path.pop();
+        const rk = key(...removed);
+        if(!state.anchors.has(rk)) state.owner.delete(rk);
+        state.drawing.last = [x,y];
+        render();
+        return;
+      }
+    }
+
+    // If cell owned by other pair, reject.
+    const owner = state.owner.get(k);
+    if(owner && owner !== pairId) return;
+
+    // If cell is an anchor of *this* pair, allow only if it's the other endpoint.
+    const anchorPid = state.anchors.get(k);
+    if(anchorPid && anchorPid !== pairId) return;
+
+    // Claim and append.
+    if(!claimCell(pairId, x,y)) return;
+
+    // For convenience, path includes both anchors and intermediate cells in order.
+    if(path.length === 0){
+      // Seed path with start anchor cell.
+      const startXY = state.pairById.get(pairId).a;
+      const altXY = state.pairById.get(pairId).b;
+      const startK = key(...startXY);
+      // Determine which anchor we started from
+      const startedFrom = state.drawing.startedFrom;
+      const seed = (startedFrom === startK) ? startXY : altXY;
+      path.push([seed[0], seed[1]]);
+    }
+    path.push([x,y]);
+
+    state.drawing.last = [x,y];
+    render();
+  }
+
+  function isConnected(pairId){
+    const p = state.pairById.get(pairId);
+    const path = state.paths.get(pairId);
+    if(!path || path.length < 2) return false;
+    const first = path[0], last = path[path.length-1];
+    const a = p.a, b = p.b;
+    const firstIsA = (first[0]===a[0] && first[1]===a[1]);
+    const firstIsB = (first[0]===b[0] && first[1]===b[1]);
+    const lastIsA  = (last[0]===a[0] && last[1]===a[1]);
+    const lastIsB  = (last[0]===b[0] && last[1]===b[1]);
+    return (firstIsA && lastIsB) || (firstIsB && lastIsA);
+  }
+
+  function computeFilled(){
+    const total = state.L.w*state.L.h - state.blocks.size;
+    // owner includes anchors + path cells, but excludes blocks.
+    let owned = 0;
+    for(let y=0;y<state.L.h;y++){
+      for(let x=0;x<state.L.w;x++){
+        if(isBlocked(x,y)) continue;
+        if(state.owner.has(key(x,y))) owned++;
+      }
+    }
+    return {owned, total, pct: Math.round(owned/total*100)};
+  }
+
+  function checkWin(){
+    // Must connect all pairs AND fill all non-block cells.
+    for(const p of state.L.pairs){
+      if(!isConnected(p.id)) return false;
+    }
+    const {owned, total} = computeFilled();
+    return owned === total;
+  }
+
+  function render(){
+    const {L, cell, pad} = state;
+    ctx.clearRect(0,0,canvas.width, canvas.height);
+
+    // Background
+    ctx.fillStyle = '#0b0c11';
+    ctx.fillRect(0,0,canvas.width, canvas.height);
+
+    // Grid
+    for(let y=0;y<L.h;y++){
+      for(let x=0;x<L.w;x++){
+        const px = pad + x*cell;
+        const py = pad + y*cell;
+        const k = key(x,y);
+
+        // cell background
+        ctx.fillStyle = ((x+y)%2===0) ? '#101223' : '#0f1120';
+        ctx.fillRect(px,py,cell,cell);
+
+        // blocked
+        if(state.blocks.has(k)){
+          ctx.fillStyle = '#1f2130';
+          ctx.fillRect(px+2,py+2,cell-4,cell-4);
+          ctx.strokeStyle = '#2f334a';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(px+2,py+2,cell-4,cell-4);
+          continue;
+        }
+
+        // owner fill
+        const pid = state.owner.get(k);
+        if(pid){
+          const c = state.pairById.get(pid).color;
+          ctx.fillStyle = c + '22';
+          ctx.fillRect(px+2,py+2,cell-4,cell-4);
+        }
+
+        // border
+        ctx.strokeStyle = '#23263a';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(px,py,cell,cell);
+      }
+    }
+
+    // Draw paths (rounded)
+    for(const p of L.pairs){
+      const path = state.paths.get(p.id);
+      if(!path || path.length < 2) continue;
+      ctx.strokeStyle = p.color;
+      ctx.lineWidth = Math.max(10, Math.floor(cell*0.28));
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      for(let i=0;i<path.length;i++){
+        const [x,y] = path[i];
+        const cx = pad + x*cell + cell/2;
+        const cy = pad + y*cell + cell/2;
+        if(i===0) ctx.moveTo(cx,cy);
+        else ctx.lineTo(cx,cy);
+      }
+      ctx.stroke();
+    }
+
+    // Draw anchors
+    for(const p of L.pairs){
+      for(const pt of [p.a, p.b]){
+        const [x,y] = pt;
+        const cx = pad + x*cell + cell/2;
+        const cy = pad + y*cell + cell/2;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(cx,cy, Math.max(10, cell*0.22), 0, Math.PI*2);
+        ctx.fill();
+        ctx.strokeStyle = '#0b0c11';
+        ctx.lineWidth = Math.max(3, cell*0.08);
+        ctx.stroke();
+      }
+    }
+
+    const f = computeFilled();
+    filledPctEl.textContent = `${f.owned}/${f.total} (${f.pct}%)`;
+
+    state.won = checkWin();
+    winTextEl.innerHTML = state.won ? '<span class="ok">Solved!</span>' : '';
+  }
+
+  function pointerPos(e){
+    const r = canvas.getBoundingClientRect();
+    return {
+      x: (e.clientX - r.left) * (canvas.width / r.width),
+      y: (e.clientY - r.top) * (canvas.height / r.height),
+    };
+  }
+
+  let pointerDown = false;
+
+  canvas.addEventListener('pointerdown', (e) => {
+    canvas.setPointerCapture(e.pointerId);
+    pointerDown = true;
+    const {x,y} = pointerPos(e);
+    const cell = cellFromPoint(x,y);
+    if(!cell) return;
+    startDrawingAt(cell);
+    render();
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if(!pointerDown) return;
+    const {x,y} = pointerPos(e);
+    const cell = cellFromPoint(x,y);
+    if(!cell) return;
+
+    // If we haven't started drawing yet, allow starting by dragging onto an anchor.
+    if(!state.drawing){
+      startDrawingAt(cell);
+      return;
+    }
+    extendTo(cell);
+  });
+
+  function endPointer(){
+    pointerDown = false;
+    state.drawing = null;
+    render();
+  }
+
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+
+  document.getElementById('resetBtn').addEventListener('click', () => loadLevel(levelIdx));
+  document.getElementById('nextBtn').addEventListener('click', () => loadLevel(levelIdx+1));
+
+  window.addEventListener('resize', () => loadLevel(levelIdx));
+
+  loadLevel(0);
+})();
+</script>
+</body>
+</html>
