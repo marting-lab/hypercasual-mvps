@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Coin Stack Sort Rush (MVP)</title>
+  <style>
+    :root{
+      --bg:#0b1020;
+      --panel:#111a33;
+      --ink:#eaf0ff;
+      --muted:#9bb0ff;
+      --bad:#ff4d6d;
+      --good:#35e6a5;
+      --line:#22305a;
+    }
+    html,body{height:100%; margin:0; background:var(--bg); color:var(--ink); font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;}
+    .wrap{max-width:980px; margin:0 auto; padding:12px; box-sizing:border-box;}
+    header{display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap;}
+    .pill{background:var(--panel); border:1px solid var(--line); padding:8px 10px; border-radius:12px;}
+    .btn{appearance:none; border:1px solid var(--line); background:linear-gradient(180deg,#192754,#111a33); color:var(--ink); padding:10px 12px; border-radius:12px; font-weight:700;}
+    .btn:active{transform:translateY(1px)}
+    .row{display:flex; gap:10px; flex-wrap:wrap; align-items:center;}
+
+    canvas{width:100%; height:auto; background:radial-gradient(900px 500px at 50% 10%, #17255a 0%, #0b1020 55%); border:1px solid var(--line); border-radius:16px; touch-action:none;}
+
+    .help{margin-top:10px; background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:12px;}
+    .help h2{margin:0 0 8px 0; font-size:16px;}
+    .help ul{margin:8px 0 0 18px; padding:0; color:#cfe0ff;}
+    .small{font-size:12px; color:#cfe0ff; opacity:.9}
+
+    .toast{position:fixed; left:50%; transform:translateX(-50%);
+      bottom:14px; background:rgba(17,26,51,.92); border:1px solid var(--line);
+      padding:10px 12px; border-radius:14px; max-width:min(560px,92vw);
+      display:none;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="row">
+        <div class="pill"><b>Score:</b> <span id="score">0</span></div>
+        <div class="pill"><b>Speed:</b> <span id="speed">1.0x</span></div>
+        <div class="pill"><b>Greedy Tax:</b> <span id="tax">0%</span></div>
+      </div>
+      <div class="row">
+        <button class="btn" id="restart">Restart</button>
+      </div>
+    </header>
+
+    <div style="height:10px"></div>
+    <canvas id="c" width="900" height="520" aria-label="Game canvas"></canvas>
+
+    <div class="help">
+      <h2>How to play</h2>
+      <ul>
+        <li>Coins ride the conveyor from left to right.</li>
+        <li><b>Drag</b> a coin into a stack tube. Each stack can only hold <b>one value</b>.</li>
+        <li>Fill a stack to <b>6 coins</b> to cash out and clear it.</li>
+        <li>Holding uncashed <b>10</b> coins increases <b>Greedy Tax</b>. When it hits 100%, you lose a random stacked coin.</li>
+        <li>If coins reach the right edge, you lose. Retry instantly.</li>
+      </ul>
+      <div class="small">MVP goals: readable loop, good drag feel, escalating pressure. No sound / meta yet.</div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+
+  const scoreEl = document.getElementById('score');
+  const speedEl = document.getElementById('speed');
+  const taxEl = document.getElementById('tax');
+  const toastEl = document.getElementById('toast');
+
+  const COLORS = {
+    1: '#6ee7ff',
+    2: '#8aff7a',
+    5: '#ffd36e',
+    10:'#ff6ee2'
+  };
+
+  const values = [1,2,5,10];
+
+  const state = {
+    running: true,
+    t: 0,
+    score: 0,
+    speed: 1.0,
+    tax: 0, // 0..1
+    lastSpawn: 0,
+    spawnEvery: 0.95,
+    conveyorY: 360,
+    coins: [],
+    stacks: [],
+    draggingId: null,
+    pointerOffset: {x:0,y:0},
+    fail: false,
+  };
+
+  const STACKS_N = 5;
+  const STACK_CAP = 6;
+
+  function toast(msg){
+    toastEl.textContent = msg;
+    toastEl.style.display = 'block';
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => toastEl.style.display='none', 1100);
+  }
+
+  function reset(){
+    state.running = true;
+    state.t = 0;
+    state.score = 0;
+    state.speed = 1.0;
+    state.tax = 0;
+    state.lastSpawn = 0;
+    state.spawnEvery = 0.95;
+    state.coins = [];
+    state.draggingId = null;
+    state.fail = false;
+
+    // layout stacks
+    state.stacks = [];
+    const pad = 18;
+    const usableW = canvas.width - pad*2;
+    const w = 110;
+    const gap = (usableW - w*STACKS_N)/(STACKS_N-1);
+    const topY = 70;
+    for(let i=0;i<STACKS_N;i++){
+      const x = pad + i*(w+gap);
+      state.stacks.push({
+        x, y: topY, w, h: 240,
+        value: null,
+        count: 0,
+        shake: 0,
+      });
+    }
+    syncUI();
+  }
+
+  function syncUI(){
+    scoreEl.textContent = String(state.score);
+    speedEl.textContent = state.speed.toFixed(1)+'x';
+    taxEl.textContent = Math.round(state.tax*100)+'%';
+  }
+
+  function randChoice(arr){ return arr[(Math.random()*arr.length)|0]; }
+
+  function spawnCoin(){
+    const v = randChoice(values);
+    const r = 22;
+    const y = state.conveyorY + (Math.random()*46-23);
+    const x = 40;
+    state.coins.push({
+      id: crypto.randomUUID(),
+      x, y, r,
+      vx: (110 + state.speed*35),
+      vy: 0,
+      value: v,
+      grabbed:false,
+      ghost:false,
+    });
+  }
+
+  function coinAt(x,y){
+    // topmost first
+    for(let i=state.coins.length-1;i>=0;i--){
+      const c = state.coins[i];
+      const dx = x-c.x, dy=y-c.y;
+      if(Math.hypot(dx,dy) <= c.r+6) return c;
+    }
+    return null;
+  }
+
+  function stackAt(x,y){
+    for(const s of state.stacks){
+      if(x>=s.x && x<=s.x+s.w && y>=s.y && y<=s.y+s.h) return s;
+    }
+    return null;
+  }
+
+  function fail(msg){
+    state.running = false;
+    state.fail = true;
+    toast(msg);
+  }
+
+  function cashOut(stack){
+    const v = stack.value;
+    const gained = v * stack.count;
+    state.score += gained;
+    stack.value = null;
+    stack.count = 0;
+    toast('Cash out +' + gained);
+  }
+
+  function removeRandomStackedCoin(){
+    const candidates = state.stacks.filter(s => s.count > 0);
+    if(candidates.length === 0) return;
+    const s = randChoice(candidates);
+    s.count -= 1;
+    if(s.count === 0) s.value = null;
+    s.shake = 0.35;
+    toast('Tax hit! -1 coin');
+  }
+
+  function update(dt){
+    if(!state.running) return;
+
+    state.t += dt;
+
+    // spawn + ramp
+    state.speed = Math.min(3.2, 1.0 + state.t/45);
+    state.spawnEvery = Math.max(0.42, 0.95 - state.t/160);
+
+    if(state.t - state.lastSpawn > state.spawnEvery){
+      state.lastSpawn = state.t;
+      spawnCoin();
+    }
+
+    // tax: only builds if any 10s are sitting in stacks
+    const holding10 = state.stacks.some(s => s.value === 10 && s.count > 0);
+    if(holding10){
+      state.tax += dt * 0.045 * state.speed;
+    } else {
+      state.tax = Math.max(0, state.tax - dt * 0.06);
+    }
+
+    if(state.tax >= 1){
+      state.tax = 0.35; // doesn't fully reset to keep pressure
+      removeRandomStackedCoin();
+    }
+
+    // move coins
+    for(const c of state.coins){
+      if(c.grabbed) continue;
+      c.x += c.vx * dt * (0.85 + state.speed*0.15);
+      // gentle bob
+      c.y += Math.sin((state.t*3 + c.x*0.02)) * dt * 6;
+    }
+
+    // coins reaching end => fail
+    const endX = canvas.width - 24;
+    for(const c of state.coins){
+      if(!c.grabbed && c.x - c.r > endX){
+        fail('Overflow!');
+        break;
+      }
+    }
+
+    // stack shake decay
+    for(const s of state.stacks){
+      s.shake = Math.max(0, s.shake - dt);
+    }
+
+    syncUI();
+  }
+
+  function draw(){
+    // clear
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    // title
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = '#eaf0ff';
+    ctx.font = '700 20px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.fillText('Coin Stack Sort Rush', 18, 32);
+    ctx.restore();
+
+    // stacks
+    for(let i=0;i<state.stacks.length;i++){
+      const s = state.stacks[i];
+      const shakeX = s.shake>0 ? Math.sin((state.t*40+i)*2)*s.shake*8 : 0;
+      ctx.save();
+      ctx.translate(shakeX, 0);
+
+      // tube
+      ctx.fillStyle = 'rgba(17,26,51,0.8)';
+      ctx.strokeStyle = '#22305a';
+      ctx.lineWidth = 3;
+      roundRect(ctx, s.x, s.y, s.w, s.h, 18);
+      ctx.fill();
+      ctx.stroke();
+
+      // label
+      ctx.fillStyle = 'rgba(234,240,255,0.85)';
+      ctx.font = '700 14px system-ui';
+      const label = (s.value==null) ? 'Empty' : ('Only '+s.value);
+      ctx.fillText(label, s.x+12, s.y+22);
+
+      // coins inside stack (simple dots)
+      const baseY = s.y+s.h-30;
+      for(let k=0;k<s.count;k++){
+        const yy = baseY - k*28;
+        const xx = s.x + s.w/2;
+        const v = s.value;
+        ctx.fillStyle = COLORS[v] || '#fff';
+        ctx.beginPath(); ctx.arc(xx, yy, 12, 0, Math.PI*2); ctx.fill();
+      }
+
+      // cap counter
+      ctx.fillStyle = 'rgba(155,176,255,0.85)';
+      ctx.font = '600 12px system-ui';
+      ctx.fillText(String(s.count)+'/'+STACK_CAP, s.x+s.w-46, s.y+22);
+
+      ctx.restore();
+    }
+
+    // conveyor
+    const y = state.conveyorY;
+    ctx.save();
+    ctx.fillStyle = 'rgba(17,26,51,0.55)';
+    ctx.strokeStyle = '#22305a';
+    ctx.lineWidth = 2;
+    roundRect(ctx, 18, y-56, canvas.width-36, 120, 18);
+    ctx.fill();
+    ctx.stroke();
+
+    // stripes
+    ctx.globalAlpha = 0.25;
+    ctx.strokeStyle = '#9bb0ff';
+    for(let x=18; x<canvas.width-18; x+=28){
+      ctx.beginPath();
+      ctx.moveTo(x + (state.t*90 % 28), y+50);
+      ctx.lineTo(x-24 + (state.t*90 % 28), y-50);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // coins on conveyor
+    for(const c of state.coins){
+      drawCoin(c);
+    }
+
+    // fail overlay
+    if(state.fail){
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle = '#eaf0ff';
+      ctx.font = '800 44px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText('GAME OVER', canvas.width/2, canvas.height/2 - 10);
+      ctx.font = '600 18px system-ui';
+      ctx.fillStyle = '#cfe0ff';
+      ctx.fillText('Tap Restart', canvas.width/2, canvas.height/2 + 26);
+      ctx.restore();
+    }
+  }
+
+  function drawCoin(c){
+    ctx.save();
+    // shadow
+    ctx.globalAlpha = 0.25;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.ellipse(c.x+4, c.y+6, c.r*0.95, c.r*0.72, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // body
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = COLORS[c.value] || '#fff';
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(c.x, c.y, c.r, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+
+    // number
+    ctx.fillStyle = '#0b1020';
+    ctx.font = '900 18px system-ui';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(c.value), c.x, c.y+1);
+
+    ctx.restore();
+  }
+
+  function roundRect(ctx,x,y,w,h,r){
+    const rr = Math.min(r, w/2, h/2);
+    ctx.beginPath();
+    ctx.moveTo(x+rr,y);
+    ctx.arcTo(x+w,y,x+w,y+h,rr);
+    ctx.arcTo(x+w,y+h,x,y+h,rr);
+    ctx.arcTo(x,y+h,x,y,rr);
+    ctx.arcTo(x,y,x+w,y,rr);
+    ctx.closePath();
+  }
+
+  function toCanvas(e){
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (canvas.width/rect.width);
+    const y = (e.clientY - rect.top) * (canvas.height/rect.height);
+    return {x,y};
+  }
+
+  canvas.addEventListener('pointerdown', (e) => {
+    canvas.setPointerCapture(e.pointerId);
+    if(state.fail) return;
+    const {x,y} = toCanvas(e);
+    const c = coinAt(x,y);
+    if(!c) return;
+    state.draggingId = c.id;
+    c.grabbed = true;
+    // bring to top
+    state.coins = state.coins.filter(cc => cc.id !== c.id);
+    state.coins.push(c);
+    state.pointerOffset.x = x - c.x;
+    state.pointerOffset.y = y - c.y;
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if(!state.draggingId) return;
+    const {x,y} = toCanvas(e);
+    const c = state.coins.find(cc => cc.id === state.draggingId);
+    if(!c) return;
+    c.x = x - state.pointerOffset.x;
+    c.y = y - state.pointerOffset.y;
+  });
+
+  function dropCurrent(){
+    if(!state.draggingId) return;
+    const c = state.coins.find(cc => cc.id === state.draggingId);
+    state.draggingId = null;
+    if(!c) return;
+    c.grabbed = false;
+
+    // check stack drop
+    const s = stackAt(c.x, c.y);
+    if(!s){
+      // small penalty: nudge forward so mistakes hurt
+      c.x += 18;
+      return;
+    }
+
+    if(s.value == null){
+      s.value = c.value;
+    }
+
+    if(s.value !== c.value){
+      s.shake = 0.35;
+      toast('Wrong stack');
+      // penalty: push coin forward on belt
+      c.x += 28;
+      c.y = state.conveyorY + (Math.random()*46-23);
+      return;
+    }
+
+    // accept coin
+    s.count += 1;
+    state.score += c.value; // tiny immediate reward
+
+    // remove coin from belt
+    state.coins = state.coins.filter(cc => cc.id !== c.id);
+
+    if(s.count >= STACK_CAP){
+      cashOut(s);
+      state.tax = 0; // cashing out relieves pressure
+    }
+  }
+
+  canvas.addEventListener('pointerup', () => dropCurrent());
+  canvas.addEventListener('pointercancel', () => dropCurrent());
+
+  document.getElementById('restart').addEventListener('click', () => reset());
+
+  // main loop
+  let last = performance.now();
+  function frame(now){
+    const dt = Math.min(0.033, (now-last)/1000);
+    last = now;
+    update(dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  reset();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
