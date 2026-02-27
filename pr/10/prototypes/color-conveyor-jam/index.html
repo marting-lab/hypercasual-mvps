@@ -1,0 +1,554 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Color Conveyor Jam (MVP)</title>
+  <style>
+    :root{
+      --bg:#0b1020;
+      --panel:#111a33;
+      --grid:#17244a;
+      --gridLine:#22356a;
+      --text:#e9efff;
+      --muted:#a9b8e6;
+      --btn:#22356a;
+      --btn2:#2b4490;
+      --shadow: rgba(0,0,0,0.35);
+    }
+    html,body{height:100%; margin:0; background:linear-gradient(180deg,#070b17, #0b1020 40%, #070b17); color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;}
+    .wrap{max-width:720px; margin:0 auto; padding:14px;}
+    header{display:flex; justify-content:space-between; gap:10px; align-items:center; margin-bottom:10px;}
+    .title{font-weight:800; letter-spacing:0.2px;}
+    .stats{display:flex; gap:10px; font-size:14px; color:var(--muted);}
+    .pill{background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.08); padding:6px 10px; border-radius:999px;}
+    canvas{width:100%; height:auto; display:block; background:var(--panel); border-radius:14px; box-shadow:0 18px 40px var(--shadow); touch-action:none;}
+    .controls{display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;}
+    button{appearance:none; border:none; background:var(--btn); color:var(--text); padding:10px 12px; border-radius:12px; font-weight:700; letter-spacing:0.2px; box-shadow:0 10px 20px var(--shadow);}
+    button:active{transform:translateY(1px); background:var(--btn2);}
+    .help{margin-top:12px; font-size:14px; color:var(--muted);}
+    .how{background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); padding:10px 12px; border-radius:12px;}
+    .small{font-size:12px; color:var(--muted); margin-top:6px;}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <div class="title">Color Conveyor Jam — HTML MVP</div>
+        <div class="small">Drag a block to choose a direction. It slides until it hits something. Conveyors then push blocks one step.</div>
+      </div>
+      <div class="stats">
+        <div class="pill">Level: <span id="level">1</span>/<span id="levelTotal">8</span></div>
+        <div class="pill">Moves: <span id="moves">0</span>/<span id="moveLimit">18</span></div>
+      </div>
+    </header>
+
+    <canvas id="c" width="720" height="820" aria-label="Game"></canvas>
+
+    <div class="controls">
+      <button id="btnPrev">Prev</button>
+      <button id="btnNext">Next</button>
+      <button id="btnRestart">Restart</button>
+    </div>
+
+    <div class="help">
+      <div class="how">
+        <b>How to play</b>
+        <ul>
+          <li><b>Drag</b> any block slightly to choose a direction (up/down/left/right).</li>
+          <li>The block will <b>slide</b> until it hits a wall or another block.</li>
+          <li>After you move, any block standing on a <b>conveyor tile</b> (arrow) gets pushed <b>one cell</b>.</li>
+          <li>Dock blocks into their <b>matching colored exit</b> squares to remove them.</li>
+          <li>Clear all blocks before the <b>move limit</b>.</li>
+        </ul>
+        <div class="small">MVP note: deterministic grid (no physics). Designed for quick iteration and UA-style “solve the jam” clips.</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+
+  const ui = {
+    level: document.getElementById('level'),
+    levelTotal: document.getElementById('levelTotal'),
+    moves: document.getElementById('moves'),
+    moveLimit: document.getElementById('moveLimit'),
+    btnPrev: document.getElementById('btnPrev'),
+    btnNext: document.getElementById('btnNext'),
+    btnRestart: document.getElementById('btnRestart'),
+  };
+
+  const COLORS = {
+    R: { fill: '#ff4d6d', stroke:'#b61f3a' },
+    G: { fill: '#2ee6a6', stroke:'#0e8f66' },
+    B: { fill: '#4aa3ff', stroke:'#1f5a9c' },
+    Y: { fill: '#ffd166', stroke:'#b6881f' },
+    P: { fill: '#b77bff', stroke:'#6d39a7' },
+  };
+
+  // conveyors: U/D/L/R
+  // exits: {x,y,color}
+  // blocks: {id,color,x,y,w,h}
+  const LEVELS = [
+    {
+      moveLimit: 12,
+      gridW: 8, gridH: 8,
+      conveyors: { '3,2':'R', '4,2':'R', '5,2':'D', '5,3':'D' },
+      exits: [ {x:7,y:1,color:'R'}, {x:0,y:6,color:'B'} ],
+      blocks: [
+        {id:'R1', color:'R', x:1, y:1, w:2, h:1},
+        {id:'B1', color:'B', x:4, y:6, w:2, h:1},
+      ]
+    },
+    {
+      moveLimit: 14,
+      gridW: 8, gridH: 8,
+      conveyors: { '2,4':'U', '2,3':'U', '5,1':'D', '5,2':'D' },
+      exits: [ {x:7,y:6,color:'G'}, {x:0,y:1,color:'Y'} ],
+      blocks: [
+        {id:'G1', color:'G', x:5, y:5, w:2, h:1},
+        {id:'Y1', color:'Y', x:1, y:2, w:1, h:2},
+        {id:'B1', color:'B', x:3, y:4, w:2, h:1},
+      ]
+    },
+    {
+      moveLimit: 16,
+      gridW: 9, gridH: 9,
+      conveyors: { '4,4':'L','3,4':'L','2,4':'U','2,3':'U','6,6':'R','7,6':'D' },
+      exits: [ {x:8,y:2,color:'P'}, {x:0,y:7,color:'R'}, {x:8,y:7,color:'B'} ],
+      blocks: [
+        {id:'P1', color:'P', x:6, y:2, w:2, h:1},
+        {id:'R1', color:'R', x:1, y:6, w:2, h:1},
+        {id:'B1', color:'B', x:5, y:7, w:2, h:1},
+        {id:'Y1', color:'Y', x:3, y:1, w:1, h:2},
+      ]
+    },
+    {
+      moveLimit: 18,
+      gridW: 9, gridH: 9,
+      conveyors: { '1,7':'R','2,7':'R','3,7':'R','4,7':'U','4,6':'U', '7,1':'D','7,2':'D' },
+      exits: [ {x:0,y:0,color:'G'}, {x:8,y:8,color:'Y'}, {x:8,y:0,color:'R'} ],
+      blocks: [
+        {id:'G1', color:'G', x:1, y:1, w:2, h:1},
+        {id:'Y1', color:'Y', x:6, y:7, w:2, h:1},
+        {id:'R1', color:'R', x:2, y:4, w:1, h:2},
+        {id:'B1', color:'B', x:5, y:3, w:2, h:1},
+      ]
+    },
+    {
+      moveLimit: 18,
+      gridW: 8, gridH: 10,
+      conveyors: { '3,8':'U','3,7':'U','3,6':'U','6,2':'L','5,2':'L' },
+      exits: [ {x:7,y:9,color:'B'}, {x:0,y:0,color:'P'} ],
+      blocks: [
+        {id:'B1', color:'B', x:5, y:9, w:2, h:1},
+        {id:'P1', color:'P', x:1, y:2, w:2, h:1},
+        {id:'R1', color:'R', x:3, y:4, w:1, h:3},
+      ]
+    },
+    {
+      moveLimit: 20,
+      gridW: 10, gridH: 8,
+      conveyors: { '4,1':'D','4,2':'D','4,3':'D','8,6':'L','7,6':'L','6,6':'U' },
+      exits: [ {x:9,y:0,color:'R'}, {x:0,y:7,color:'G'}, {x:9,y:7,color:'P'} ],
+      blocks: [
+        {id:'R1', color:'R', x:1, y:0, w:2, h:1},
+        {id:'G1', color:'G', x:7, y:7, w:2, h:1},
+        {id:'P1', color:'P', x:7, y:1, w:2, h:1},
+        {id:'Y1', color:'Y', x:4, y:5, w:1, h:2},
+      ]
+    },
+    {
+      moveLimit: 22,
+      gridW: 9, gridH: 9,
+      conveyors: { '1,1':'R','2,1':'R','3,1':'D','3,2':'D','3,3':'L','2,3':'L' },
+      exits: [ {x:8,y:4,color:'Y'}, {x:0,y:8,color:'R'}, {x:8,y:0,color:'B'} ],
+      blocks: [
+        {id:'Y1', color:'Y', x:6, y:4, w:2, h:1},
+        {id:'R1', color:'R', x:1, y:7, w:2, h:1},
+        {id:'B1', color:'B', x:3, y:0, w:2, h:1},
+        {id:'G1', color:'G', x:4, y:6, w:1, h:2},
+      ]
+    },
+    {
+      moveLimit: 24,
+      gridW: 10, gridH: 10,
+      conveyors: { '5,4':'U','5,3':'U','5,2':'U','2,6':'R','3,6':'R','4,6':'R','8,7':'L','7,7':'L' },
+      exits: [ {x:9,y:1,color:'R'}, {x:0,y:5,color:'B'}, {x:9,y:8,color:'G'}, {x:0,y:9,color:'P'} ],
+      blocks: [
+        {id:'R1', color:'R', x:1, y:1, w:3, h:1},
+        {id:'B1', color:'B', x:6, y:5, w:2, h:1},
+        {id:'G1', color:'G', x:7, y:8, w:2, h:1},
+        {id:'P1', color:'P', x:1, y:9, w:2, h:1},
+        {id:'Y1', color:'Y', x:4, y:7, w:1, h:2},
+      ]
+    },
+  ];
+
+  ui.levelTotal.textContent = String(LEVELS.length);
+
+  // Layout constants
+  let gridRect = {x:0,y:0,w:0,h:0};
+  let cell = 64;
+  let topPad = 20;
+
+  // State
+  let levelIndex = 0;
+  let state = null;
+  let pointer = {active:false, id:null, sx:0, sy:0, x:0, y:0, blockId:null};
+
+  function deepCopy(obj){ return JSON.parse(JSON.stringify(obj)); }
+
+  function loadLevel(i){
+    levelIndex = (i + LEVELS.length) % LEVELS.length;
+    const L = deepCopy(LEVELS[levelIndex]);
+    state = {
+      gridW: L.gridW, gridH: L.gridH,
+      conveyors: L.conveyors,
+      exits: L.exits,
+      blocks: L.blocks,
+      moveLimit: L.moveLimit,
+      moves: 0,
+      won: false,
+    };
+
+    ui.level.textContent = String(levelIndex+1);
+    ui.moveLimit.textContent = String(state.moveLimit);
+    ui.moves.textContent = String(state.moves);
+
+    resize();
+    draw();
+  }
+
+  function resize(){
+    const w = state.gridW;
+    const h = state.gridH;
+
+    const maxW = Math.min(720, Math.max(320, Math.floor(window.innerWidth) - 28));
+    const desiredCell = Math.floor(maxW / (w + 1));
+    cell = Math.max(26, Math.min(64, desiredCell));
+
+    const boardW = w * cell;
+    const boardH = h * cell;
+
+    canvas.width = Math.min(720, boardW + 40);
+    canvas.height = boardH + 80;
+
+    gridRect.w = boardW;
+    gridRect.h = boardH;
+    gridRect.x = Math.floor((canvas.width - boardW) / 2);
+    gridRect.y = topPad;
+  }
+
+  window.addEventListener('resize', () => { resize(); draw(); }, {passive:true});
+
+  function cellToPx(cx, cy){
+    return { x: gridRect.x + cx * cell, y: gridRect.y + cy * cell };
+  }
+
+  function getBlockAtPoint(px, py){
+    // blocks drawn with a small inset
+    for (let k = state.blocks.length-1; k >= 0; k--){
+      const b = state.blocks[k];
+      const p = cellToPx(b.x, b.y);
+      const inset = 6;
+      const rx = p.x + inset, ry = p.y + inset;
+      const rw = b.w*cell - inset*2, rh = b.h*cell - inset*2;
+      if (px >= rx && px <= rx+rw && py >= ry && py <= ry+rh) return b;
+    }
+    return null;
+  }
+
+  function occupancyGrid(exceptBlockId=null){
+    const occ = new Map();
+    for (const b of state.blocks){
+      if (b.id === exceptBlockId) continue;
+      for (let dy=0; dy<b.h; dy++){
+        for (let dx=0; dx<b.w; dx++){
+          occ.set(`${b.x+dx},${b.y+dy}`, b.id);
+        }
+      }
+    }
+    return occ;
+  }
+
+  function canPlace(b, nx, ny, occ){
+    if (nx < 0 || ny < 0 || nx + b.w > state.gridW || ny + b.h > state.gridH) return false;
+    for (let dy=0; dy<b.h; dy++){
+      for (let dx=0; dx<b.w; dx++){
+        if (occ.has(`${nx+dx},${ny+dy}`)) return false;
+      }
+    }
+    return true;
+  }
+
+  function slideBlock(b, dir){
+    if (state.won) return false;
+    if (state.moves >= state.moveLimit) return false;
+
+    const occ = occupancyGrid(b.id);
+    let nx = b.x, ny = b.y;
+    const step = (d) => ({
+      'U':[0,-1],'D':[0,1],'L':[-1,0],'R':[1,0]
+    }[d]);
+    const [dx,dy] = step(dir);
+
+    while (true){
+      const tx = nx + dx;
+      const ty = ny + dy;
+      if (!canPlace(b, tx, ty, occ)) break;
+      nx = tx; ny = ty;
+    }
+
+    if (nx === b.x && ny === b.y) return false;
+
+    b.x = nx; b.y = ny;
+    state.moves++;
+    ui.moves.textContent = String(state.moves);
+
+    applyConveyors();
+    resolveExits();
+    checkWin();
+
+    draw();
+    return true;
+  }
+
+  function applyConveyors(){
+    // one deterministic step per player move, in a stable order
+    const occ = occupancyGrid(null);
+
+    // sort blocks by id so movement is deterministic
+    const blocksSorted = [...state.blocks].sort((a,b) => a.id.localeCompare(b.id));
+    for (const b of blocksSorted){
+      const key = `${b.x},${b.y}`;
+      const d = state.conveyors[key];
+      if (!d) continue;
+
+      const [dx,dy] = ({'U':[0,-1],'D':[0,1],'L':[-1,0],'R':[1,0]})[d];
+
+      // try to move one cell in conveyor direction
+      // must be placeable for entire shape
+      const occWithout = occupancyGrid(b.id);
+      const tx = b.x + dx;
+      const ty = b.y + dy;
+      if (canPlace(b, tx, ty, occWithout)){
+        b.x = tx; b.y = ty;
+      }
+    }
+  }
+
+  function resolveExits(){
+    // If a block's top-left is exactly on an exit cell of same color, remove it.
+    // Simple MVP rule (tweak later): exit is a single cell.
+    const exitsByPos = new Map(state.exits.map(e => [`${e.x},${e.y}`, e]));
+    const kept = [];
+    for (const b of state.blocks){
+      const e = exitsByPos.get(`${b.x},${b.y}`);
+      if (e && e.color === b.color){
+        // remove
+      } else {
+        kept.push(b);
+      }
+    }
+    state.blocks = kept;
+  }
+
+  function checkWin(){
+    if (state.blocks.length === 0){
+      state.won = true;
+    }
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    // background panel
+    roundRect(ctx, 10, 10, canvas.width-20, canvas.height-20, 16, 'rgba(255,255,255,0.04)', 'rgba(255,255,255,0.06)');
+
+    // grid
+    for (let y=0; y<state.gridH; y++){
+      for (let x=0; x<state.gridW; x++){
+        const p = cellToPx(x,y);
+        const isDark = (x+y)%2===0;
+        ctx.fillStyle = isDark ? '#111b37' : '#0f1831';
+        ctx.fillRect(p.x, p.y, cell, cell);
+
+        // conveyors
+        const d = state.conveyors[`${x},${y}`];
+        if (d){
+          drawArrowTile(p.x, p.y, cell, d);
+        }
+
+        // exits
+        const exit = state.exits.find(e => e.x===x && e.y===y);
+        if (exit){
+          drawExit(p.x, p.y, cell, exit.color);
+        }
+
+        ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+        ctx.strokeRect(p.x+0.5, p.y+0.5, cell-1, cell-1);
+      }
+    }
+
+    // blocks
+    for (const b of state.blocks){
+      drawBlock(b);
+    }
+
+    // footer text
+    const footerY = gridRect.y + gridRect.h + 40;
+    ctx.fillStyle = 'rgba(233,239,255,0.85)';
+    ctx.font = '700 16px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+
+    let msg = state.won ? 'Cleared! Tap Next.' : (state.moves >= state.moveLimit ? 'Out of moves! Restart.' : '');
+    if (!msg) msg = 'Goal: Dock blocks into matching exits.';
+    ctx.textAlign = 'center';
+    ctx.fillText(msg, canvas.width/2, footerY);
+  }
+
+  function drawExit(x, y, s, colorKey){
+    const c = COLORS[colorKey] || {fill:'#fff',stroke:'#aaa'};
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = c.fill;
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 2;
+    const pad = 10;
+    roundRect(ctx, x+pad, y+pad, s-pad*2, s-pad*2, 10, 'rgba(0,0,0,0.22)');
+    roundRect(ctx, x+pad+3, y+pad+3, s-pad*2-6, s-pad*2-6, 8, c.fill, c.stroke);
+    ctx.restore();
+  }
+
+  function drawArrowTile(x, y, s, dir){
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    const pad = 8;
+    roundRect(ctx, x+pad, y+pad, s-pad*2, s-pad*2, 10, 'rgba(255,255,255,0.05)', 'rgba(255,255,255,0.10)');
+
+    ctx.translate(x + s/2, y + s/2);
+    const rot = {U:-Math.PI/2, R:0, D:Math.PI/2, L:Math.PI}[dir];
+    ctx.rotate(rot);
+    ctx.fillStyle = 'rgba(233,239,255,0.75)';
+
+    ctx.beginPath();
+    ctx.moveTo(-10, -10);
+    ctx.lineTo(14, 0);
+    ctx.lineTo(-10, 10);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  function drawBlock(b){
+    const c = COLORS[b.color] || {fill:'#fff', stroke:'#aaa'};
+    const p = cellToPx(b.x, b.y);
+    const inset = 6;
+    const x = p.x + inset;
+    const y = p.y + inset;
+    const w = b.w*cell - inset*2;
+    const h = b.h*cell - inset*2;
+
+    // shadow
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    roundRect(ctx, x+3, y+4, w, h, 14, 'rgba(0,0,0,0.25)');
+
+    // body
+    roundRect(ctx, x, y, w, h, 14, c.fill, c.stroke);
+
+    // highlight
+    ctx.globalAlpha = 0.25;
+    roundRect(ctx, x+4, y+4, w-8, Math.max(10, h*0.35), 12, '#ffffff');
+    ctx.globalAlpha = 1;
+
+    // tiny label
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.font = '800 12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(b.id, x + w/2, y + h/2);
+
+    ctx.restore();
+  }
+
+  function roundRect(ctx, x,y,w,h,r, fill=null, stroke=null){
+    const rr = Math.min(r, w/2, h/2);
+    ctx.beginPath();
+    ctx.moveTo(x+rr, y);
+    ctx.arcTo(x+w, y, x+w, y+h, rr);
+    ctx.arcTo(x+w, y+h, x, y+h, rr);
+    ctx.arcTo(x, y+h, x, y, rr);
+    ctx.arcTo(x, y, x+w, y, rr);
+    ctx.closePath();
+    if (fill){ ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke){ ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.stroke(); }
+  }
+
+  // Input
+  function getCanvasPoint(e){
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+    return {x,y};
+  }
+
+  function onDown(e){
+    e.preventDefault();
+    const p = getCanvasPoint(e);
+    const b = getBlockAtPoint(p.x, p.y);
+    if (!b) return;
+    pointer.active = true;
+    pointer.id = e.pointerId;
+    pointer.sx = p.x; pointer.sy = p.y;
+    pointer.x = p.x; pointer.y = p.y;
+    pointer.blockId = b.id;
+    canvas.setPointerCapture(e.pointerId);
+  }
+
+  function onMove(e){
+    if (!pointer.active || e.pointerId !== pointer.id) return;
+    const p = getCanvasPoint(e);
+    pointer.x = p.x; pointer.y = p.y;
+  }
+
+  function onUp(e){
+    if (!pointer.active || e.pointerId !== pointer.id) return;
+    const dx = pointer.x - pointer.sx;
+    const dy = pointer.y - pointer.sy;
+    pointer.active = false;
+
+    const dist = Math.hypot(dx,dy);
+    if (dist < 14) return; // small drag => ignore
+
+    const b = state.blocks.find(bb => bb.id === pointer.blockId);
+    if (!b) return;
+
+    let dir;
+    if (Math.abs(dx) > Math.abs(dy)) dir = dx > 0 ? 'R' : 'L';
+    else dir = dy > 0 ? 'D' : 'U';
+
+    slideBlock(b, dir);
+  }
+
+  canvas.addEventListener('pointerdown', onDown);
+  canvas.addEventListener('pointermove', onMove);
+  canvas.addEventListener('pointerup', onUp);
+  canvas.addEventListener('pointercancel', onUp);
+
+  // Buttons
+  ui.btnPrev.addEventListener('click', () => loadLevel(levelIndex - 1));
+  ui.btnNext.addEventListener('click', () => loadLevel(levelIndex + 1));
+  ui.btnRestart.addEventListener('click', () => loadLevel(levelIndex));
+
+  // Init
+  loadLevel(0);
+})();
+</script>
+</body>
+</html>
