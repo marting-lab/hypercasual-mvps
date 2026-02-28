@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Hexa Nest Sort — MVP</title>
+  <style>
+    :root{
+      --bg:#0b1020;
+      --panel:#131b33;
+      --ink:#e9ecff;
+      --muted:#aab2e6;
+      --good:#4ee38a;
+      --warn:#ffd36a;
+      --bad:#ff5b7a;
+      --shadow: rgba(0,0,0,.25);
+    }
+    *{box-sizing:border-box; touch-action:manipulation}
+    body{margin:0; font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:radial-gradient(1200px 700px at 20% 0%, #1a2a64 0%, var(--bg) 45%, #070a14 100%); color:var(--ink)}
+    .wrap{max-width:980px; margin:0 auto; padding:14px}
+    header{display:flex; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap}
+    h1{font-size:18px; margin:0}
+    .meta{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+    .pill{background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.10); padding:6px 10px; border-radius:999px; color:var(--muted); font-size:12px}
+    .pill strong{color:var(--ink)}
+    .btn{appearance:none; border:0; background:linear-gradient(180deg,#2b3b88,#1a2560); color:var(--ink); padding:10px 12px; border-radius:12px; font-weight:700; box-shadow:0 10px 18px var(--shadow); cursor:pointer}
+    .btn:active{transform:translateY(1px)}
+    .layout{display:grid; grid-template-columns: 1fr; gap:12px; margin-top:12px}
+    @media (min-width: 860px){ .layout{grid-template-columns: 1fr 320px;} }
+
+    .card{background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.10); border-radius:18px; box-shadow:0 18px 30px rgba(0,0,0,.25)}
+    .card .hd{padding:12px 12px 8px 12px; border-bottom:1px solid rgba(255,255,255,.10)}
+    .card .bd{padding:12px}
+
+    #game{width:100%; aspect-ratio: 9/16; display:block; border-radius:18px; background:linear-gradient(180deg,#0f1630,#0a0f21);}
+
+    .how{font-size:13px; color:var(--muted); line-height:1.35}
+    .how ul{margin:8px 0 0 16px; padding:0}
+    .how li{margin:6px 0}
+
+    .small{font-size:12px; color:rgba(233,236,255,.75)}
+    a{color:#b8c7ff}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Hexa Nest Sort — HTML MVP</h1>
+      <div class="meta">
+        <div class="pill"><strong id="levelLabel">Level 1</strong></div>
+        <div class="pill">⏱ <strong id="timeLabel">45</strong>s</div>
+        <div class="pill">✅ <strong id="leftLabel">0</strong> left</div>
+        <button class="btn" id="newBtn">New level</button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <div class="card">
+        <div class="hd"><strong>Play</strong></div>
+        <div class="bd">
+          <canvas id="game" width="720" height="1280" aria-label="game canvas"></canvas>
+          <div class="small" style="margin-top:8px; opacity:.85">
+            Tip: works best in portrait on mobile.
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="hd"><strong>How to play</strong></div>
+        <div class="bd how">
+          <ul>
+            <li><strong>Drag</strong> hex tokens into the currently <strong>open</strong> nest.</li>
+            <li>Tap a nest’s <strong>rotate</strong> button to switch which nest is open.</li>
+            <li>Fill a nest to <strong>lock</strong> it (nice bonus!)</li>
+            <li>Clear all tokens before the timer hits 0.</li>
+          </ul>
+          <p style="margin-top:10px">
+            Core loop: fast sorting + quick “rotate or place?” decisions.
+          </p>
+          <p class="small">
+            MVP note: no monetization, no progression — just the loop.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const levelLabel = document.getElementById('levelLabel');
+  const timeLabel  = document.getElementById('timeLabel');
+  const leftLabel  = document.getElementById('leftLabel');
+  const newBtn     = document.getElementById('newBtn');
+
+  const DPR = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+  function resizeCanvas(){
+    // Keep internal resolution crisp while canvas scales via CSS.
+    const rect = canvas.getBoundingClientRect();
+    const w = Math.floor(rect.width * DPR);
+    const h = Math.floor(rect.height * DPR);
+    if (canvas.width !== w || canvas.height !== h){
+      canvas.width = w; canvas.height = h;
+    }
+  }
+
+  // --- Utility
+  const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+  const dist2 = (ax,ay,bx,by) => (ax-bx)*(ax-bx)+(ay-by)*(ay-by);
+
+  // --- Game state
+  const COLORS = [
+    {name:'Rose',   fill:'#ff5b7a', stroke:'#ffb0bf'},
+    {name:'Mint',   fill:'#4ee38a', stroke:'#b8ffd1'},
+    {name:'Sky',    fill:'#5bb6ff', stroke:'#b8e3ff'},
+    {name:'Amber',  fill:'#ffd36a', stroke:'#fff1b3'},
+    {name:'Violet', fill:'#a879ff', stroke:'#e0c9ff'}
+  ];
+
+  let level = 1;
+  let timeLeft = 45;
+  let running = true;
+  let lastTick = performance.now();
+
+  const state = {
+    tokens: [],
+    nests: [],
+    openNest: 0,
+    draggingId: null,
+    dragOffX: 0,
+    dragOffY: 0,
+    message: null,
+    messageT: 0
+  };
+
+  function showMessage(text, good=false){
+    state.message = {text, good};
+    state.messageT = 1.2;
+  }
+
+  // --- Layout
+  function L(){
+    const w = canvas.width, h = canvas.height;
+    const pad = 24 * DPR;
+    const tray = {x: pad, y: pad, w: w - 2*pad, h: h * 0.56};
+    const nestsArea = {x: pad, y: tray.y + tray.h + pad, w: tray.w, h: h - (tray.y + tray.h + 2*pad)};
+    return {w,h,pad,tray,nestsArea};
+  }
+
+  function hexPath(cx, cy, r){
+    ctx.beginPath();
+    for (let i=0;i<6;i++){
+      const a = Math.PI/3*i + Math.PI/6;
+      const x = cx + Math.cos(a)*r;
+      const y = cy + Math.sin(a)*r;
+      if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    ctx.closePath();
+  }
+
+  function makeLevel(seed){
+    // deterministic-ish with seed for repeatability
+    const rng = mulberry32(seed);
+    const {tray, nestsArea} = L();
+
+    const colorCount = 3 + (level>=4 ? 1 : 0) + (level>=7 ? 1 : 0);
+    const palette = COLORS.slice(0, colorCount);
+
+    const nestCount = 3;
+    const nestCap = 4; // capacity to lock
+
+    // Create nests
+    state.nests = [];
+    const gap = 14 * DPR;
+    const nw = (nestsArea.w - gap*(nestCount-1)) / nestCount;
+    const nh = nestsArea.h * 0.74;
+    for (let i=0;i<nestCount;i++){
+      const x = nestsArea.x + i*(nw+gap);
+      const y = nestsArea.y + (nestsArea.h-nh)/2;
+      state.nests.push({
+        x, y, w: nw, h: nh,
+        cap: nestCap,
+        tokens: [],
+        locked: false,
+        // each nest is “assigned” a target color this level
+        color: palette[i % palette.length],
+        rot: 0
+      });
+    }
+
+    // Create tokens: mix across palette (ensure solvable)
+    state.tokens = [];
+    const perColor = 4; // 12 tokens total
+    const tokens = [];
+    for (const c of palette){
+      for (let i=0;i<perColor;i++) tokens.push(c);
+    }
+    // trim to 12 tokens for MVP
+    while (tokens.length > 12) tokens.pop();
+    shuffle(tokens, rng);
+
+    const r = 34 * DPR;
+    // place in tray on a loose grid
+    const cols = 4;
+    const gx = tray.x + tray.w*0.08;
+    const gy = tray.y + tray.h*0.18;
+    const cellW = (tray.w*0.84) / cols;
+    const rows = Math.ceil(tokens.length/cols);
+    const cellH = (tray.h*0.64) / Math.max(3, rows);
+
+    for (let i=0;i<tokens.length;i++){
+      const c = tokens[i];
+      const col = i % cols;
+      const row = Math.floor(i/cols);
+      const cx = gx + col*cellW + cellW*0.5 + (rng()-0.5)*8*DPR;
+      const cy = gy + row*cellH + cellH*0.5 + (rng()-0.5)*8*DPR;
+      state.tokens.push({
+        id: i,
+        color: c,
+        x: cx, y: cy,
+        r,
+        inNest: null,
+        grabbed: false,
+        homeX: cx, homeY: cy,
+      });
+    }
+
+    state.openNest = 0;
+    state.draggingId = null;
+
+    // Timer gets tighter slowly
+    timeLeft = clamp(52 - level*2, 28, 52);
+    running = true;
+    lastTick = performance.now();
+
+    showMessage('Sort the tokens!', true);
+    updateHUD();
+  }
+
+  function updateHUD(){
+    levelLabel.textContent = `Level ${level}`;
+    timeLabel.textContent = `${Math.ceil(timeLeft)}`;
+    const left = state.tokens.filter(t => t.inNest === null).length;
+    leftLabel.textContent = `${left}`;
+  }
+
+  // --- Input
+  function pointerPos(e){
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * DPR;
+    const y = (e.clientY - rect.top) * DPR;
+    return {x,y};
+  }
+
+  function hitRotateButton(nest, x, y){
+    // small circle button at top-right of nest
+    const r = 18*DPR;
+    const cx = nest.x + nest.w - 28*DPR;
+    const cy = nest.y + 28*DPR;
+    return dist2(x,y,cx,cy) <= r*r;
+  }
+
+  function onDown(e){
+    if (!running) return;
+    const {x,y} = pointerPos(e);
+
+    // rotate buttons
+    for (let i=0;i<state.nests.length;i++){
+      const nest = state.nests[i];
+      if (hitRotateButton(nest,x,y)){
+        // rotate selects open nest (simple MVP)
+        state.openNest = i;
+        nest.rot = (nest.rot+1)%3;
+        navigator.vibrate?.(10);
+        showMessage(`Nest ${i+1} open`, true);
+        return;
+      }
+    }
+
+    // tokens (topmost first)
+    for (let i=state.tokens.length-1;i>=0;i--){
+      const t = state.tokens[i];
+      if (t.inNest !== null) continue; // already placed
+      if (dist2(x,y,t.x,t.y) <= (t.r*1.08)*(t.r*1.08)){
+        state.draggingId = t.id;
+        t.grabbed = true;
+        state.dragOffX = x - t.x;
+        state.dragOffY = y - t.y;
+        // bring to top
+        state.tokens.splice(i,1);
+        state.tokens.push(t);
+        return;
+      }
+    }
+  }
+
+  function onMove(e){
+    const id = state.draggingId;
+    if (id === null) return;
+    const t = state.tokens.find(tt => tt.id === id);
+    if (!t) return;
+    const {x,y} = pointerPos(e);
+    t.x = x - state.dragOffX;
+    t.y = y - state.dragOffY;
+  }
+
+  function onUp(e){
+    const id = state.draggingId;
+    if (id === null) return;
+    const t = state.tokens.find(tt => tt.id === id);
+    if (!t) return;
+    t.grabbed = false;
+    state.draggingId = null;
+
+    const {x,y} = pointerPos(e);
+    const nest = state.nests[state.openNest];
+
+    const inside = (x >= nest.x && x <= nest.x+nest.w && y >= nest.y && y <= nest.y+nest.h);
+    if (inside && !nest.locked){
+      if (t.color !== nest.color){
+        // wrong nest
+        showMessage('Wrong color!', false);
+        // snap back
+        t.x = t.homeX; t.y = t.homeY;
+      } else {
+        // place
+        t.inNest = state.openNest;
+        nest.tokens.push(t.id);
+        navigator.vibrate?.(8);
+        if (nest.tokens.length >= nest.cap){
+          nest.locked = true;
+          showMessage('Nest locked! +2s', true);
+          timeLeft += 2;
+        } else {
+          showMessage('Nice!', true);
+        }
+      }
+    } else {
+      // snap back
+      t.x = t.homeX; t.y = t.homeY;
+    }
+
+    // check win
+    if (state.tokens.every(tt => tt.inNest !== null)){
+      running = false;
+      showMessage('Level cleared!', true);
+      setTimeout(() => { level++; makeLevel(Date.now() + level*999); }, 650);
+    }
+
+    updateHUD();
+  }
+
+  canvas.addEventListener('pointerdown', (e)=>{ e.preventDefault(); onDown(e); });
+  canvas.addEventListener('pointermove', (e)=>{ e.preventDefault(); onMove(e); });
+  canvas.addEventListener('pointerup',   (e)=>{ e.preventDefault(); onUp(e); });
+  canvas.addEventListener('pointercancel',(e)=>{ try{onUp(e);}catch{} });
+
+  newBtn.addEventListener('click', () => {
+    level = 1;
+    makeLevel(Date.now());
+  });
+
+  // --- Render
+  function draw(){
+    resizeCanvas();
+    const {w,h,tray,nestsArea,pad} = L();
+
+    // background
+    ctx.clearRect(0,0,w,h);
+
+    // tray panel
+    roundRect(tray.x, tray.y, tray.w, tray.h, 22*DPR, 'rgba(255,255,255,.06)', 'rgba(255,255,255,.10)');
+    ctx.fillStyle = 'rgba(233,236,255,.72)';
+    ctx.font = `${16*DPR}px system-ui`;
+    ctx.fillText('TRAY', tray.x + 14*DPR, tray.y + 26*DPR);
+
+    // nests panel label
+    ctx.fillStyle = 'rgba(233,236,255,.55)';
+    ctx.fillText('NESTS (tap rotate)', nestsArea.x + 2*DPR, nestsArea.y - 6*DPR);
+
+    // nests
+    for (let i=0;i<state.nests.length;i++){
+      const n = state.nests[i];
+      const isOpen = (i === state.openNest);
+      const stroke = isOpen ? 'rgba(255,255,255,.35)' : 'rgba(255,255,255,.12)';
+      const fill   = isOpen ? 'rgba(255,255,255,.08)' : 'rgba(255,255,255,.05)';
+      roundRect(n.x, n.y, n.w, n.h, 20*DPR, fill, stroke);
+
+      // header
+      ctx.fillStyle = n.color.stroke;
+      ctx.font = `${14*DPR}px system-ui`;
+      ctx.fillText(n.color.name.toUpperCase(), n.x + 12*DPR, n.y + 26*DPR);
+
+      // capacity dots
+      for (let k=0;k<n.cap;k++){
+        const cx = n.x + 14*DPR + k*18*DPR;
+        const cy = n.y + 46*DPR;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 5*DPR, 0, Math.PI*2);
+        ctx.fillStyle = (k < n.tokens.length) ? n.color.fill : 'rgba(255,255,255,.15)';
+        ctx.fill();
+      }
+
+      // rotate button
+      const br = 18*DPR;
+      const bx = n.x + n.w - 28*DPR;
+      const by = n.y + 28*DPR;
+      ctx.beginPath();
+      ctx.arc(bx, by, br, 0, Math.PI*2);
+      ctx.fillStyle = isOpen ? 'rgba(255,255,255,.12)' : 'rgba(255,255,255,.08)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,.18)';
+      ctx.lineWidth = 2*DPR;
+      ctx.stroke();
+      // rotate glyph
+      ctx.strokeStyle = 'rgba(233,236,255,.75)';
+      ctx.lineWidth = 2.3*DPR;
+      ctx.beginPath();
+      ctx.arc(bx, by, 8*DPR, Math.PI*0.2, Math.PI*1.4);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(bx+7*DPR, by-1*DPR);
+      ctx.lineTo(bx+12*DPR, by-5*DPR);
+      ctx.lineTo(bx+12*DPR, by+2*DPR);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(233,236,255,.75)';
+      ctx.fill();
+
+      if (n.locked){
+        ctx.fillStyle = 'rgba(78,227,138,.18)';
+        ctx.fillRect(n.x, n.y, n.w, n.h);
+        ctx.fillStyle = 'rgba(78,227,138,.95)';
+        ctx.font = `${16*DPR}px system-ui`;
+        ctx.fillText('LOCKED', n.x + 12*DPR, n.y + n.h - 16*DPR);
+      }
+    }
+
+    // tokens
+    for (const t of state.tokens){
+      if (t.inNest !== null) continue;
+      drawToken(t);
+    }
+
+    // message
+    if (state.messageT > 0 && state.message){
+      const m = state.message;
+      const alpha = clamp(state.messageT,0,1);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.font = `${22*DPR}px system-ui`;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = m.good ? 'rgba(78,227,138,.95)' : 'rgba(255,91,122,.95)';
+      ctx.fillText(m.text, w*0.5, tray.y + tray.h - 24*DPR);
+      ctx.restore();
+    }
+  }
+
+  function drawToken(t){
+    ctx.save();
+    const r = t.r;
+    // shadow
+    ctx.fillStyle = 'rgba(0,0,0,.28)';
+    hexPath(t.x + 2.5*DPR, t.y + 4*DPR, r);
+    ctx.fill();
+
+    // body
+    hexPath(t.x, t.y, r);
+    ctx.fillStyle = t.color.fill;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.65)';
+    ctx.lineWidth = 2*DPR;
+    ctx.stroke();
+
+    // icon
+    ctx.fillStyle = 'rgba(10,15,33,.55)';
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, 7*DPR, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function roundRect(x,y,w,h,r,fill,stroke){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+    if (fill){ ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke){ ctx.strokeStyle = stroke; ctx.lineWidth = 2*DPR; ctx.stroke(); }
+  }
+
+  // --- Loop
+  function tick(now){
+    const dt = (now - lastTick) / 1000;
+    lastTick = now;
+
+    if (running){
+      timeLeft -= dt;
+      if (timeLeft <= 0){
+        timeLeft = 0;
+        running = false;
+        showMessage('Time up! Tap New level', false);
+      }
+    }
+
+    if (state.messageT > 0){
+      state.messageT -= dt;
+      if (state.messageT <= 0){ state.messageT = 0; state.message = null; }
+    }
+
+    updateHUD();
+    draw();
+    requestAnimationFrame(tick);
+  }
+
+  // --- RNG helpers
+  function mulberry32(a){
+    return function(){
+      let t = a += 0x6D2B79F5;
+      t = Math.imul(t ^ t >>> 15, t | 1);
+      t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    }
+  }
+  function shuffle(arr, rng){
+    for (let i=arr.length-1;i>0;i--){
+      const j = Math.floor(rng()*(i+1));
+      [arr[i],arr[j]]=[arr[j],arr[i]];
+    }
+  }
+
+  // Start
+  window.addEventListener('resize', resizeCanvas);
+  makeLevel(Date.now());
+  requestAnimationFrame((t)=>{ lastTick=t; tick(t); });
+})();
+</script>
+</body>
+</html>
