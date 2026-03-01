@@ -1,0 +1,534 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Drawer Jam Sort (MVP)</title>
+  <style>
+    :root{ --bg:#0f1220; --panel:#171a2b; --text:#eef1ff; --muted:#a8b0d6; --shadow:rgba(0,0,0,.35); }
+    *{box-sizing:border-box; touch-action:none;}
+    body{margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:linear-gradient(180deg,#0b0d17,#0f1220); color:var(--text);}
+    .wrap{max-width:920px; margin:0 auto; padding:12px;}
+    header{display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap;}
+    h1{font-size:18px; margin:8px 0; font-weight:700; letter-spacing:.2px;}
+    .hud{display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+    .pill{background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); padding:8px 10px; border-radius:12px; box-shadow:0 10px 30px var(--shadow);} 
+    .pill strong{font-variant-numeric:tabular-nums;}
+    button{appearance:none; border:1px solid rgba(255,255,255,.18); background:rgba(255,255,255,.08); color:var(--text); padding:10px 12px; border-radius:12px; font-weight:650;}
+    button:active{transform:translateY(1px)}
+
+    .card{margin-top:10px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.10); border-radius:16px; overflow:hidden; box-shadow:0 16px 40px var(--shadow);} 
+    #game{display:block; width:100%; height:auto; background:radial-gradient(1200px 600px at 50% 0%, rgba(255,255,255,.08), transparent 60%), linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.0));}
+
+    .how{margin-top:10px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.10); border-radius:16px; padding:12px 12px; color:var(--muted);}
+    .how b{color:var(--text)}
+    .small{font-size:12px; opacity:.9}
+    a{color:#b9d1ff}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Drawer Jam Sort — HTML MVP</h1>
+      <div class="hud">
+        <div class="pill">Score: <strong id="score">0</strong></div>
+        <div class="pill">Streak: <strong id="streak">0</strong></div>
+        <div class="pill">Speed: <strong id="spd">1.0x</strong></div>
+        <button id="btnRestart" type="button">Restart</button>
+      </div>
+    </header>
+
+    <div class="card">
+      <canvas id="game" width="900" height="1200" aria-label="Game canvas"></canvas>
+    </div>
+
+    <div class="how">
+      <div><b>How to play:</b> Drag items into the matching colored drawer. Make sets of <b>5</b> to clear a drawer and score. If any drawer reaches <b>7</b> items, it’s game over.</div>
+      <div>Every few seconds, one drawer may <b>lock</b> briefly (a “jam”). Keep sorting using the other drawers.</div>
+      <div class="small">Tip: On mobile, use one finger. This is a minimal prototype focusing on the core loop + a simple jam constraint.</div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+
+  const ui = {
+    score: document.getElementById('score'),
+    streak: document.getElementById('streak'),
+    spd: document.getElementById('spd'),
+    restart: document.getElementById('btnRestart'),
+  };
+
+  // --- helpers
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const now = () => performance.now();
+
+  function fitCanvasToCSS() {
+    // Keep a fixed internal resolution, scale via CSS for crispness.
+    const maxW = Math.min(window.innerWidth - 24, 920);
+    canvas.style.width = maxW + 'px';
+    canvas.style.height = (maxW * (canvas.height / canvas.width)) + 'px';
+  }
+  window.addEventListener('resize', fitCanvasToCSS);
+
+  // --- game constants
+  const COLORS = [
+    { key:'red',   fill:'#ff4b6e', stroke:'#ffb3c2' },
+    { key:'blue',  fill:'#4bb0ff', stroke:'#b3e0ff' },
+    { key:'green', fill:'#5cff9a', stroke:'#b6ffd2' },
+  ];
+
+  const SET_CLEAR = 5;
+  const DRAWER_MAX = 7;
+
+  // --- state
+  let state;
+
+  function reset() {
+    state = {
+      t0: now(),
+      lastTick: now(),
+      running: true,
+      score: 0,
+      streak: 0,
+      speed: 1.0,
+      spawnEvery: 1200,
+      nextSpawnAt: now() + 600,
+      items: [],
+      draggingId: null,
+      dragOff: {x:0,y:0},
+      drawers: COLORS.map((c,i)=>({
+        color: c,
+        count: 0,
+        lockedUntil: 0,
+        flash: 0,
+      })),
+      nextJamAt: now() + 4500,
+      msg: '',
+      msgUntil: 0,
+    };
+    ui.score.textContent = '0';
+    ui.streak.textContent = '0';
+    ui.spd.textContent = '1.0x';
+  }
+
+  function setMessage(txt, ms=1200) {
+    state.msg = txt;
+    state.msgUntil = now() + ms;
+  }
+
+  function layout() {
+    const W = canvas.width, H = canvas.height;
+    const pad = 28;
+    const topHudH = 110;
+
+    const desk = {
+      x: pad, y: pad + topHudH,
+      w: W - pad*2,
+      h: H - pad*2 - topHudH - 320,
+      r: 24,
+    };
+
+    const drawersArea = {
+      x: pad, y: desk.y + desk.h + 20,
+      w: W - pad*2,
+      h: 280,
+      r: 24,
+    };
+
+    const gap = 18;
+    const dw = (drawersArea.w - gap*2) / 3;
+    const dh = drawersArea.h;
+
+    const drawers = [0,1,2].map(i => ({
+      x: drawersArea.x + i*(dw + gap),
+      y: drawersArea.y,
+      w: dw,
+      h: dh,
+      r: 22,
+    }));
+
+    const spawn = {
+      x: desk.x + 16,
+      y: desk.y + 16,
+      w: desk.w - 32,
+      h: desk.h - 32,
+    };
+
+    return { W, H, pad, topHudH, desk, drawersArea, drawers, spawn };
+  }
+
+  function spawnItem() {
+    const L = layout();
+    const c = COLORS[(Math.random()*COLORS.length)|0];
+    const r = 34;
+    const x = L.spawn.x + r + Math.random()*(L.spawn.w - r*2);
+    const y = L.spawn.y + r + Math.random()*(L.spawn.h - r*2);
+    const id = Math.random().toString(16).slice(2);
+    state.items.push({ id, color: c, x, y, r, vx: (Math.random()-.5)*0.25, vy: (Math.random()-.5)*0.25, born: now() });
+  }
+
+  function pointInRoundRect(px,py,rr) {
+    // Approx: treat as rect for hit tests
+    return px>=rr.x && px<=rr.x+rr.w && py>=rr.y && py<=rr.y+rr.h;
+  }
+
+  function drawerIndexAt(px,py) {
+    const L = layout();
+    for (let i=0;i<3;i++) if (pointInRoundRect(px,py,L.drawers[i])) return i;
+    return -1;
+  }
+
+  function tryDropItem(item, px, py) {
+    const idx = drawerIndexAt(px,py);
+    if (idx < 0) return false;
+
+    const d = state.drawers[idx];
+    if (now() < d.lockedUntil) {
+      d.flash = 1.0;
+      setMessage('Drawer locked!');
+      return false;
+    }
+
+    if (d.color.key !== item.color.key) {
+      d.flash = 1.0;
+      state.streak = 0;
+      ui.streak.textContent = String(state.streak);
+      setMessage('Wrong drawer');
+      return true; // consume drop attempt
+    }
+
+    d.count++;
+    d.flash = 1.0;
+
+    // remove item
+    state.items = state.items.filter(it => it.id !== item.id);
+
+    state.streak++;
+    ui.streak.textContent = String(state.streak);
+
+    if (d.count >= DRAWER_MAX) {
+      state.running = false;
+      setMessage('Game over');
+      return true;
+    }
+
+    if (d.count === SET_CLEAR) {
+      d.count = 0;
+      state.score++;
+      ui.score.textContent = String(state.score);
+      setMessage('Set cleared!');
+
+      // slightly ramp speed
+      state.speed = Math.min(2.2, state.speed + 0.05);
+      state.spawnEvery = Math.max(520, state.spawnEvery - 30);
+      ui.spd.textContent = state.speed.toFixed(1) + 'x';
+    }
+
+    return true;
+  }
+
+  function step(dt) {
+    if (!state.running) return;
+
+    // spawn
+    if (now() >= state.nextSpawnAt) {
+      spawnItem();
+      state.nextSpawnAt = now() + state.spawnEvery / state.speed;
+
+      // soft cap to avoid overload
+      if (state.items.length > 14) {
+        // penalty: auto-lock a random drawer to force clears/ends quickly
+        const j = (Math.random()*3)|0;
+        state.drawers[j].lockedUntil = Math.max(state.drawers[j].lockedUntil, now() + 1800);
+      }
+    }
+
+    // jam event
+    if (now() >= state.nextJamAt) {
+      const j = (Math.random()*3)|0;
+      state.drawers[j].lockedUntil = now() + 2600;
+      state.nextJamAt = now() + 5200 + Math.random()*2200;
+    }
+
+    // idle drift for items
+    for (const it of state.items) {
+      if (state.draggingId === it.id) continue;
+      it.x += it.vx * dt;
+      it.y += it.vy * dt;
+      const L = layout();
+      it.x = clamp(it.x, L.spawn.x + it.r, L.spawn.x + L.spawn.w - it.r);
+      it.y = clamp(it.y, L.spawn.y + it.r, L.spawn.y + L.spawn.h - it.r);
+    }
+  }
+
+  // --- rendering
+  function rrPath(x,y,w,h,r) {
+    const r2 = Math.min(r, w/2, h/2);
+    ctx.beginPath();
+    ctx.moveTo(x+r2, y);
+    ctx.arcTo(x+w, y, x+w, y+h, r2);
+    ctx.arcTo(x+w, y+h, x, y+h, r2);
+    ctx.arcTo(x, y+h, x, y, r2);
+    ctx.arcTo(x, y, x+w, y, r2);
+    ctx.closePath();
+  }
+
+  function draw() {
+    const L = layout();
+    ctx.clearRect(0,0,L.W,L.H);
+
+    // top HUD area inside canvas
+    ctx.fillStyle = 'rgba(255,255,255,0.03)';
+    rrPath(L.pad, L.pad, L.W - L.pad*2, L.topHudH, 22);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.font = '700 28px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.fillText('Desk', L.pad + 18, L.pad + 48);
+    ctx.font = '500 16px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.70)';
+    ctx.fillText('Drag items into the matching drawer. Clear 5 to score.', L.pad + 18, L.pad + 78);
+
+    // desk
+    rrPath(L.desk.x, L.desk.y, L.desk.w, L.desk.h, L.desk.r);
+    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+    ctx.stroke();
+
+    // subtle grid dots
+    ctx.fillStyle = 'rgba(255,255,255,0.03)';
+    for (let y=L.spawn.y; y<L.spawn.y+L.spawn.h; y+=40) {
+      for (let x=L.spawn.x; x<L.spawn.x+L.spawn.w; x+=40) {
+        ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI*2); ctx.fill();
+      }
+    }
+
+    // drawers
+    for (let i=0;i<3;i++) {
+      const box = L.drawers[i];
+      const d = state.drawers[i];
+
+      const locked = now() < d.lockedUntil;
+      const flash = d.flash;
+      d.flash = Math.max(0, d.flash - 0.06);
+
+      rrPath(box.x, box.y, box.w, box.h, box.r);
+      ctx.fillStyle = 'rgba(255,255,255,0.05)';
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = locked ? 'rgba(255,255,255,0.22)' : d.color.fill;
+      ctx.stroke();
+
+      if (flash > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.18 * flash;
+        ctx.fillStyle = d.color.fill;
+        rrPath(box.x, box.y, box.w, box.h, box.r);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // label
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.font = '700 22px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+      ctx.fillText(d.color.key.toUpperCase(), box.x + 16, box.y + 36);
+
+      // lock indicator
+      if (locked) {
+        ctx.fillStyle = 'rgba(255,255,255,0.86)';
+        ctx.font = '700 18px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+        const s = 'LOCKED';
+        ctx.fillText(s, box.x + box.w - 88, box.y + 36);
+      }
+
+      // capacity bar
+      const barX = box.x + 16, barY = box.y + 56;
+      const barW = box.w - 32, barH = 16;
+      rrPath(barX, barY, barW, barH, 8);
+      ctx.fillStyle = 'rgba(255,255,255,0.08)';
+      ctx.fill();
+
+      const p = clamp(d.count / DRAWER_MAX, 0, 1);
+      rrPath(barX, barY, barW * p, barH, 8);
+      ctx.fillStyle = d.color.fill;
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.font = '650 16px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+      ctx.fillText(`${d.count}/${DRAWER_MAX}  (clear at ${SET_CLEAR})`, box.x + 16, box.y + 98);
+
+      // little slots
+      const slotY = box.y + 126;
+      for (let k=0;k<DRAWER_MAX;k++) {
+        const sx = box.x + 16 + k * ((box.w-32)/(DRAWER_MAX));
+        ctx.beginPath();
+        ctx.arc(sx, slotY, 7, 0, Math.PI*2);
+        ctx.fillStyle = (k < d.count) ? d.color.fill : 'rgba(255,255,255,0.14)';
+        ctx.fill();
+      }
+    }
+
+    // items
+    for (const it of state.items) {
+      // shadow
+      ctx.beginPath();
+      ctx.arc(it.x+2, it.y+10, it.r*0.95, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.fill();
+
+      // body
+      ctx.beginPath();
+      ctx.arc(it.x, it.y, it.r, 0, Math.PI*2);
+      ctx.fillStyle = it.color.fill;
+      ctx.fill();
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = it.color.stroke;
+      ctx.stroke();
+
+      // icon
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.font = '800 22px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('▣', it.x, it.y+1);
+      ctx.textAlign = 'start';
+      ctx.textBaseline = 'alphabetic';
+    }
+
+    // message overlay
+    if (state.msg && now() < state.msgUntil) {
+      ctx.save();
+      ctx.globalAlpha = 1;
+      const w = L.W - L.pad*2;
+      const x = L.pad;
+      const y = L.desk.y + 18;
+      rrPath(x, y, w, 56, 16);
+      ctx.fillStyle = 'rgba(0,0,0,0.28)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.font = '700 20px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+      ctx.fillText(state.msg, x + 18, y + 36);
+      ctx.restore();
+    }
+
+    // game over overlay
+    if (!state.running) {
+      ctx.save();
+      ctx.globalAlpha = 0.92;
+      ctx.fillStyle = 'rgba(0,0,0,0.45)';
+      ctx.fillRect(0,0,L.W,L.H);
+
+      rrPath(L.pad+40, L.H/2 - 130, L.W - (L.pad+40)*2, 260, 22);
+      ctx.fillStyle = 'rgba(15,18,32,0.95)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.fillStyle = 'rgba(255,255,255,0.95)';
+      ctx.font = '800 42px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+      ctx.textAlign='center';
+      ctx.fillText('Game Over', L.W/2, L.H/2 - 50);
+      ctx.font = '650 20px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,0.80)';
+      ctx.fillText(`Score: ${state.score}   •   Best streak: ${state.streak}`, L.W/2, L.H/2);
+      ctx.fillStyle = 'rgba(255,255,255,0.70)';
+      ctx.fillText('Tap Restart to play again.', L.W/2, L.H/2 + 48);
+      ctx.textAlign='start';
+      ctx.restore();
+    }
+
+    requestAnimationFrame(draw);
+  }
+
+  // --- input
+  function canvasPointFromEvent(ev) {
+    const rect = canvas.getBoundingClientRect();
+    const x = (ev.clientX - rect.left) * (canvas.width / rect.width);
+    const y = (ev.clientY - rect.top) * (canvas.height / rect.height);
+    return {x,y};
+  }
+
+  function pickItem(px,py) {
+    // pick topmost (last)
+    for (let i=state.items.length-1; i>=0; i--) {
+      const it = state.items[i];
+      const dx = px - it.x, dy = py - it.y;
+      if (dx*dx + dy*dy <= it.r*it.r) return it;
+    }
+    return null;
+  }
+
+  canvas.addEventListener('pointerdown', (ev) => {
+    ev.preventDefault();
+    const {x,y} = canvasPointFromEvent(ev);
+    const it = pickItem(x,y);
+    if (!it) return;
+    state.draggingId = it.id;
+    state.dragOff.x = x - it.x;
+    state.dragOff.y = y - it.y;
+    // bring to top
+    state.items = state.items.filter(o=>o.id!==it.id);
+    state.items.push(it);
+    canvas.setPointerCapture(ev.pointerId);
+  });
+
+  canvas.addEventListener('pointermove', (ev) => {
+    if (!state.draggingId) return;
+    ev.preventDefault();
+    const {x,y} = canvasPointFromEvent(ev);
+    const it = state.items.find(o=>o.id===state.draggingId);
+    if (!it) return;
+    it.x = x - state.dragOff.x;
+    it.y = y - state.dragOff.y;
+  });
+
+  function endDrag(ev) {
+    if (!state.draggingId) return;
+    ev.preventDefault();
+    const {x,y} = canvasPointFromEvent(ev);
+    const it = state.items.find(o=>o.id===state.draggingId);
+    if (it) {
+      const dropped = tryDropItem(it, x, y);
+      if (!dropped) {
+        // snap back inside spawn area
+        const L = layout();
+        it.x = clamp(it.x, L.spawn.x + it.r, L.spawn.x + L.spawn.w - it.r);
+        it.y = clamp(it.y, L.spawn.y + it.r, L.spawn.y + L.spawn.h - it.r);
+      }
+    }
+    state.draggingId = null;
+  }
+
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
+
+  // --- loop
+  function tick() {
+    const t = now();
+    const dt = t - state.lastTick;
+    state.lastTick = t;
+    step(dt);
+    requestAnimationFrame(tick);
+  }
+
+  ui.restart.addEventListener('click', () => reset());
+
+  // boot
+  fitCanvasToCSS();
+  reset();
+  requestAnimationFrame(draw);
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
