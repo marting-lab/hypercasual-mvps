@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Shift Sort — HTML MVP</title>
+  <style>
+    :root{
+      --bg:#0f1220;
+      --panel:#171a2e;
+      --tile:#232746;
+      --grid-gap:10px;
+      --radius:14px;
+      --shadow: 0 12px 28px rgba(0,0,0,.35);
+      --red:#ff4d6d;
+      --blue:#4dabff;
+      --yellow:#ffd166;
+      --green:#2ee59d;
+    }
+    *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+    body{
+      margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: radial-gradient(1200px 800px at 30% 10%, #1c2050 0%, var(--bg) 55%, #0b0d16 100%);
+      color:#eef; min-height:100vh;
+      display:flex; align-items:center; justify-content:center;
+      padding:18px;
+    }
+    .wrap{width:min(520px, 100%);}
+    header{display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin-bottom:12px;}
+    h1{font-size:18px; margin:0; letter-spacing:.2px}
+    .sub{opacity:.75; font-size:12px; margin-top:4px}
+    .hud{display:flex; gap:10px; align-items:center; justify-content:flex-end; flex-wrap:wrap}
+    .pill{background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.10); padding:8px 10px; border-radius:999px; font-size:12px}
+    .btn{cursor:pointer; user-select:none; background:#ffffff; color:#0b0d16; border:none; padding:10px 12px; border-radius:12px; font-weight:700; box-shadow:var(--shadow)}
+    .btn:active{transform:translateY(1px)}
+
+    .card{background:rgba(0,0,0,.18); border:1px solid rgba(255,255,255,.10); border-radius:18px; padding:14px; box-shadow:var(--shadow)}
+
+    .how{font-size:13px; line-height:1.35; opacity:.92; margin:0 0 12px 0}
+    .how b{color:#fff}
+
+    .legend{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px}
+    .chip{display:flex; align-items:center; gap:8px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.10); padding:6px 10px; border-radius:999px; font-size:12px; opacity:.95}
+    .dot{width:12px; height:12px; border-radius:999px}
+
+    .grid{
+      display:grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: var(--grid-gap);
+      touch-action: none;
+      user-select:none;
+    }
+    .cell{
+      aspect-ratio: 1 / 1;
+      border-radius: var(--radius);
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.10);
+      display:flex; align-items:center; justify-content:center;
+      position:relative;
+      overflow:hidden;
+    }
+    .cell::after{content:""; position:absolute; inset:0; background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,0)); opacity:.55}
+
+    .tile{
+      width: 78%; height: 78%;
+      border-radius: 16px;
+      background: var(--tile);
+      border: 1px solid rgba(255,255,255,.16);
+      box-shadow: 0 10px 18px rgba(0,0,0,.30);
+      transform: translateZ(0);
+    }
+
+    .binBadge{
+      position:absolute; left:10px; top:10px;
+      display:flex; align-items:center; gap:6px;
+      background:rgba(0,0,0,.35);
+      border:1px solid rgba(255,255,255,.14);
+      padding:4px 8px; border-radius:999px;
+      font-size:11px;
+      z-index:2;
+    }
+
+    .toast{margin-top:12px; font-size:13px; opacity:.9}
+    .toast b{color:#fff}
+
+    footer{margin-top:12px; opacity:.65; font-size:12px}
+
+    @media (max-width: 380px){
+      :root{--grid-gap:8px}
+      .card{padding:12px}
+      .btn{padding:10px 10px}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>Shift Sort — HTML MVP</h1>
+        <div class="sub">Swipe on the grid to shift a row/column. Collect tiles into matching bins.</div>
+      </div>
+      <div class="hud">
+        <div class="pill">Moves: <b id="moves">0</b></div>
+        <div class="pill">Score: <b id="score">0</b></div>
+        <button class="btn" id="newRun">New run</button>
+      </div>
+    </header>
+
+    <div class="card">
+      <p class="how">
+        <b>How to play:</b> touch a cell and <b>swipe</b> left/right to shift that row, or up/down to shift that column.
+        If a tile lands on a <b>matching colored bin</b>, it is collected. Reach <b>20</b> points.
+      </p>
+
+      <div class="legend" aria-label="Bins legend">
+        <div class="chip"><span class="dot" style="background:var(--red)"></span> Red bin</div>
+        <div class="chip"><span class="dot" style="background:var(--blue)"></span> Blue bin</div>
+        <div class="chip"><span class="dot" style="background:var(--yellow)"></span> Yellow bin</div>
+        <div class="chip"><span class="dot" style="background:var(--green)"></span> Green bin</div>
+      </div>
+
+      <div id="grid" class="grid" aria-label="Game grid"></div>
+      <div class="toast" id="toast">Tip: set up a tile next to its bin, then shift to collect.</div>
+
+      <footer>
+        MVP scope: single endless level + swipe shifting + auto-collect + basic scoring.
+      </footer>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const N = 5;
+  const COLORS = ["red","blue","yellow","green"]; // logical
+  const CSS = { red:"var(--red)", blue:"var(--blue)", yellow:"var(--yellow)", green:"var(--green)" };
+
+  // 4 bins in corners
+  const bins = [
+    {r:0, c:0, color:"red"},
+    {r:0, c:N-1, color:"blue"},
+    {r:N-1, c:0, color:"yellow"},
+    {r:N-1, c:N-1, color:"green"},
+  ];
+
+  const gridEl = document.getElementById("grid");
+  const movesEl = document.getElementById("moves");
+  const scoreEl = document.getElementById("score");
+  const toastEl = document.getElementById("toast");
+  const newRunBtn = document.getElementById("newRun");
+
+  let board = [];
+  let moves = 0;
+  let score = 0;
+
+  function randChoice(arr){ return arr[(Math.random()*arr.length)|0]; }
+  function isBin(r,c){ return bins.some(b => b.r===r && b.c===c); }
+  function binAt(r,c){ return bins.find(b => b.r===r && b.c===c); }
+
+  function newRun(){
+    moves = 0; score = 0;
+    // Build board with empties + tiles
+    board = Array.from({length:N}, () => Array.from({length:N}, () => null));
+
+    // Place ~16 tiles, leave some empty for playability.
+    const positions = [];
+    for(let r=0;r<N;r++) for(let c=0;c<N;c++) if(!isBin(r,c)) positions.push({r,c});
+
+    // Shuffle positions
+    for(let i=positions.length-1;i>0;i--){
+      const j = (Math.random()*(i+1))|0;
+      [positions[i], positions[j]] = [positions[j], positions[i]];
+    }
+
+    const tileCount = 16;
+    for(let i=0;i<tileCount && i<positions.length;i++){
+      const {r,c} = positions[i];
+      board[r][c] = randChoice(COLORS);
+    }
+
+    // Ensure bins start empty (they collect only by landing)
+    bins.forEach(b => board[b.r][b.c] = null);
+
+    toastEl.textContent = "Swipe to shift. Match bin color to collect.";
+    render();
+    updateHud();
+  }
+
+  function updateHud(){
+    movesEl.textContent = moves;
+    scoreEl.textContent = score;
+  }
+
+  function render(){
+    gridEl.innerHTML = "";
+    for(let r=0;r<N;r++){
+      for(let c=0;c<N;c++){
+        const cell = document.createElement("div");
+        cell.className = "cell";
+        cell.dataset.r = r;
+        cell.dataset.c = c;
+
+        const b = binAt(r,c);
+        if(b){
+          const badge = document.createElement("div");
+          badge.className = "binBadge";
+          const dot = document.createElement("span");
+          dot.className = "dot";
+          dot.style.background = CSS[b.color];
+          badge.appendChild(dot);
+          const txt = document.createElement("span");
+          txt.textContent = "BIN";
+          badge.appendChild(txt);
+          cell.appendChild(badge);
+        }
+
+        const v = board[r][c];
+        if(v){
+          const tile = document.createElement("div");
+          tile.className = "tile";
+          tile.style.background = CSS[v];
+          cell.appendChild(tile);
+        }
+        gridEl.appendChild(cell);
+      }
+    }
+  }
+
+  function collect(){
+    let gained = 0;
+    for(const b of bins){
+      const v = board[b.r][b.c];
+      if(v && v === b.color){
+        board[b.r][b.c] = null;
+        gained += 1;
+      }
+    }
+    if(gained>0){
+      score += gained;
+      if(gained >= 2) toastEl.innerHTML = `Combo! <b>+${gained}</b>`;
+      else toastEl.textContent = "+1";
+      if(score >= 20){
+        toastEl.innerHTML = `Goal reached! <b>${score}</b> points. Start a new run?`;
+      }
+      updateHud();
+    }
+  }
+
+  function shiftRow(r, dir){
+    // dir: -1 left, +1 right
+    const row = board[r].slice();
+    for(let c=0;c<N;c++){
+      const nc = (c + dir + N) % N;
+      board[r][nc] = row[c];
+    }
+    // Keep bins as special targets: tiles may land there.
+  }
+
+  function shiftCol(c, dir){
+    // dir: -1 up, +1 down
+    const col = Array.from({length:N}, (_,r) => board[r][c]);
+    for(let r=0;r<N;r++){
+      const nr = (r + dir + N) % N;
+      board[nr][c] = col[r];
+    }
+  }
+
+  // Input: swipe on a cell
+  let start = null;
+  gridEl.addEventListener("pointerdown", (e) => {
+    const cell = e.target.closest(".cell");
+    if(!cell) return;
+    start = {
+      x: e.clientX,
+      y: e.clientY,
+      r: parseInt(cell.dataset.r, 10),
+      c: parseInt(cell.dataset.c, 10),
+    };
+    gridEl.setPointerCapture(e.pointerId);
+  });
+
+  gridEl.addEventListener("pointerup", (e) => {
+    if(!start) return;
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+    const adx = Math.abs(dx);
+    const ady = Math.abs(dy);
+
+    // deadzone
+    if(Math.max(adx, ady) < 18){
+      start = null;
+      return;
+    }
+
+    if(adx > ady){
+      // horizontal: shift row
+      shiftRow(start.r, dx > 0 ? 1 : -1);
+    } else {
+      // vertical: shift col
+      shiftCol(start.c, dy > 0 ? 1 : -1);
+    }
+
+    moves += 1;
+    updateHud();
+
+    // After shift, collect and rerender.
+    collect();
+    render();
+
+    start = null;
+  });
+
+  newRunBtn.addEventListener("click", newRun);
+
+  // Start
+  newRun();
+})();
+</script>
+</body>
+</html>
