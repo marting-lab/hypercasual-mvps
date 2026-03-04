@@ -1,0 +1,516 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Rule Flip Sort — MVP</title>
+  <style>
+    :root{
+      --bg:#0b1020;
+      --panel:#121a33;
+      --text:#e9ecff;
+      --muted:#aab2e6;
+      --good:#5dff9a;
+      --bad:#ff5d7a;
+      --card:#18224a;
+      --shadow: 0 12px 30px rgba(0,0,0,.35);
+      --radius:18px;
+    }
+    *{box-sizing:border-box; -webkit-tap-highlight-color: transparent;}
+    body{
+      margin:0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color:var(--text);
+      background: radial-gradient(1200px 800px at 30% 10%, #1a2a6a 0%, var(--bg) 55%);
+      min-height:100vh;
+      display:flex;
+      justify-content:center;
+    }
+    .wrap{width:min(900px, 100%); padding:18px;}
+
+    header{
+      display:flex;
+      gap:12px;
+      align-items:center;
+      justify-content:space-between;
+      margin-bottom:12px;
+    }
+    .title{display:flex; flex-direction:column; gap:2px;}
+    h1{font-size:18px; margin:0; letter-spacing:.2px;}
+    .subtitle{color:var(--muted); font-size:12px;}
+
+    .hud{display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end;}
+    .pill{
+      background:rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.10);
+      padding:8px 10px;
+      border-radius:999px;
+      font-size:12px;
+      display:flex;
+      gap:6px;
+      align-items:center;
+    }
+    .pill b{font-size:13px;}
+
+    .board{
+      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+      border:1px solid rgba(255,255,255,.10);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding:14px;
+      position:relative;
+      overflow:hidden;
+      min-height: 72vh;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+    }
+
+    .how{
+      background:rgba(0,0,0,.18);
+      border:1px solid rgba(255,255,255,.09);
+      padding:10px 12px;
+      border-radius:14px;
+      font-size:13px;
+      line-height:1.35;
+    }
+    .how .rule{font-weight:700; color:var(--good)}
+
+    .arena{
+      flex:1;
+      position:relative;
+      border-radius:14px;
+      background:rgba(0,0,0,.18);
+      border:1px dashed rgba(255,255,255,.12);
+      overflow:hidden;
+      touch-action:none;
+    }
+
+    .item{
+      position:absolute;
+      left:50%;
+      top:38%;
+      width:92px;
+      height:92px;
+      transform: translate(-50%, -50%);
+      border-radius:24px;
+      display:grid;
+      place-items:center;
+      background: var(--card);
+      border:1px solid rgba(255,255,255,.14);
+      box-shadow: 0 18px 40px rgba(0,0,0,.35);
+      user-select:none;
+    }
+    .item.dragging{box-shadow: 0 26px 55px rgba(0,0,0,.48);}
+
+    .shape{
+      width:54px;
+      height:54px;
+      background: currentColor;
+      opacity:.95;
+    }
+    .circle{border-radius:999px;}
+    .square{border-radius:12px;}
+    .triangle{
+      width:0;height:0;
+      border-left:28px solid transparent;
+      border-right:28px solid transparent;
+      border-bottom:52px solid currentColor;
+      background:transparent;
+    }
+
+    .bins{
+      display:grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap:10px;
+    }
+    .bin{
+      background:rgba(255,255,255,.05);
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:16px;
+      min-height: 92px;
+      padding:10px;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      justify-content:center;
+      gap:6px;
+      position:relative;
+    }
+    .bin .label{font-weight:700; font-size:13px;}
+    .bin .hint{font-size:11px; color:var(--muted);}
+    .bin.good{outline:2px solid rgba(93,255,154,.55)}
+    .bin.bad{outline:2px solid rgba(255,93,122,.55)}
+
+    .controls{display:flex; gap:10px; flex-wrap:wrap; justify-content:space-between; align-items:center;}
+    button{
+      appearance:none;
+      border:1px solid rgba(255,255,255,.14);
+      background: rgba(255,255,255,.06);
+      color: var(--text);
+      padding:10px 12px;
+      border-radius:14px;
+      font-weight:700;
+      cursor:pointer;
+    }
+    button:active{transform: translateY(1px);}
+
+    .toast{
+      position:absolute;
+      left:50%; top:10px;
+      transform: translateX(-50%);
+      background:rgba(0,0,0,.45);
+      border:1px solid rgba(255,255,255,.16);
+      padding:8px 10px;
+      border-radius:999px;
+      font-size:12px;
+      color:var(--muted);
+      pointer-events:none;
+      opacity:0;
+      transition: opacity .18s ease;
+    }
+    .toast.show{opacity:1;}
+
+    .overlay{
+      position:absolute;
+      inset:0;
+      display:none;
+      place-items:center;
+      background: rgba(10,14,30,.72);
+      backdrop-filter: blur(6px);
+      z-index:10;
+    }
+    .overlay.show{display:grid;}
+    .card{
+      width:min(520px, 92%);
+      background: rgba(18,26,51,.92);
+      border:1px solid rgba(255,255,255,.16);
+      border-radius: 18px;
+      padding: 14px;
+      box-shadow: var(--shadow);
+    }
+    .card h2{margin:0 0 6px 0; font-size:18px;}
+    .card p{margin:6px 0; color:var(--muted); font-size:13px;}
+    .big{font-size:34px; font-weight:900; margin:10px 0;}
+
+    @media (max-width:420px){
+      .item{width:84px; height:84px;}
+      .shape{width:48px; height:48px;}
+      .triangle{border-left-width:24px; border-right-width:24px; border-bottom-width:46px;}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="title">
+        <h1>Rule Flip Sort (HTML MVP)</h1>
+        <div class="subtitle">A fast sorting puzzle where the rule flips mid-run.</div>
+      </div>
+      <div class="hud">
+        <div class="pill">Time: <b id="time">60</b>s</div>
+        <div class="pill">Score: <b id="score">0</b></div>
+        <div class="pill">Combo: <b id="combo">0</b></div>
+        <div class="pill">Rule: <b id="rule">COLOR</b></div>
+      </div>
+    </header>
+
+    <div class="board">
+      <div class="how">
+        <b>How to play:</b> Drag the tile into the correct bin. The <span class="rule">sorting rule flips</span> during the run.
+        Correct = +score & combo. Wrong = combo breaks and you lose 2 seconds.
+      </div>
+
+      <div class="arena" id="arena" aria-label="game area">
+        <div class="toast" id="toast">Rule flipped!</div>
+
+        <div class="overlay" id="overlay">
+          <div class="card">
+            <h2 id="endTitle">Time!</h2>
+            <div class="big" id="endScore">0</div>
+            <p id="endDetails"></p>
+            <div class="controls" style="margin-top:12px">
+              <button id="playBtn">Play</button>
+              <button id="practiceBtn">Practice (no timer)</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="item" id="item" role="img" aria-label="draggable tile">
+          <div class="shape circle" id="shape"></div>
+        </div>
+      </div>
+
+      <div class="bins" id="bins">
+        <div class="bin" data-bin="0">
+          <div class="label" id="bin0">Red</div>
+          <div class="hint" id="hint0">(color)</div>
+        </div>
+        <div class="bin" data-bin="1">
+          <div class="label" id="bin1">Green</div>
+          <div class="hint" id="hint1">(color)</div>
+        </div>
+        <div class="bin" data-bin="2">
+          <div class="label" id="bin2">Blue</div>
+          <div class="hint" id="hint2">(color)</div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button id="restartBtn">Restart</button>
+        <div class="subtitle">Tip: aim for long combos. Flips happen every <b>8</b> correct sorts.</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const COLORS = [
+      {name:'Red', value:'#ff5d7a'},
+      {name:'Green', value:'#5dff9a'},
+      {name:'Blue', value:'#5db7ff'}
+    ];
+    const SHAPES = [
+      {name:'Circle', cls:'circle'},
+      {name:'Square', cls:'square'},
+      {name:'Triangle', cls:'triangle'}
+    ];
+
+    const elTime = document.getElementById('time');
+    const elScore = document.getElementById('score');
+    const elCombo = document.getElementById('combo');
+    const elRule = document.getElementById('rule');
+    const elItem = document.getElementById('item');
+    const elShape = document.getElementById('shape');
+    const elArena = document.getElementById('arena');
+    const elToast = document.getElementById('toast');
+    const elBins = Array.from(document.querySelectorAll('.bin'));
+
+    const overlay = document.getElementById('overlay');
+    const endScore = document.getElementById('endScore');
+    const endDetails = document.getElementById('endDetails');
+    const playBtn = document.getElementById('playBtn');
+    const practiceBtn = document.getElementById('practiceBtn');
+    const restartBtn = document.getElementById('restartBtn');
+
+    let state;
+
+    function randInt(n){ return Math.floor(Math.random()*n); }
+
+    function newTile(){
+      return { color: randInt(3), shape: randInt(3) };
+    }
+
+    function ruleName(){ return state.rule === 'color' ? 'COLOR' : 'SHAPE'; }
+
+    function updateBins(){
+      if(state.rule === 'color'){
+        document.getElementById('bin0').textContent = COLORS[0].name;
+        document.getElementById('bin1').textContent = COLORS[1].name;
+        document.getElementById('bin2').textContent = COLORS[2].name;
+        document.getElementById('hint0').textContent = '(color)';
+        document.getElementById('hint1').textContent = '(color)';
+        document.getElementById('hint2').textContent = '(color)';
+      } else {
+        document.getElementById('bin0').textContent = SHAPES[0].name;
+        document.getElementById('bin1').textContent = SHAPES[1].name;
+        document.getElementById('bin2').textContent = SHAPES[2].name;
+        document.getElementById('hint0').textContent = '(shape)';
+        document.getElementById('hint1').textContent = '(shape)';
+        document.getElementById('hint2').textContent = '(shape)';
+      }
+      elRule.textContent = ruleName();
+    }
+
+    function renderTile(){
+      const t = state.tile;
+      elItem.dataset.color = t.color;
+      elItem.dataset.shape = t.shape;
+
+      elShape.className = 'shape';
+      const shapeCls = SHAPES[t.shape].cls;
+      if(shapeCls === 'triangle'){
+        // triangle uses borders so we replace element entirely
+        elShape.className = 'shape triangle';
+      } else {
+        elShape.className = 'shape ' + shapeCls;
+      }
+
+      const c = COLORS[t.color].value;
+      elShape.style.color = c;
+      elShape.style.background = (shapeCls === 'triangle') ? 'transparent' : 'currentColor';
+
+      // For triangle, currentColor is used by border-bottom, so we set color
+      elItem.style.borderColor = 'rgba(255,255,255,.14)';
+    }
+
+    function resetItemPosition(){
+      elItem.style.left = '50%';
+      elItem.style.top = '42%';
+      elItem.style.transform = 'translate(-50%, -50%)';
+    }
+
+    function setHUD(){
+      elScore.textContent = state.score;
+      elCombo.textContent = state.combo;
+      elTime.textContent = Math.max(0, Math.ceil(state.timeLeft));
+      elRule.textContent = ruleName();
+    }
+
+    function showToast(msg){
+      elToast.textContent = msg;
+      elToast.classList.add('show');
+      clearTimeout(state.toastT);
+      state.toastT = setTimeout(()=> elToast.classList.remove('show'), 900);
+    }
+
+    function flipRule(){
+      state.rule = (state.rule === 'color') ? 'shape' : 'color';
+      updateBins();
+      showToast('Rule flipped: ' + ruleName());
+    }
+
+    function correctBinFor(tile){
+      return state.rule === 'color' ? tile.color : tile.shape;
+    }
+
+    function pulseBin(binIndex, ok){
+      const b = elBins[binIndex];
+      b.classList.remove('good','bad');
+      b.classList.add(ok ? 'good' : 'bad');
+      setTimeout(()=> b.classList.remove('good','bad'), 240);
+    }
+
+    function handleDrop(binIndex){
+      const expected = correctBinFor(state.tile);
+      const ok = (binIndex === expected);
+
+      if(ok){
+        state.combo++;
+        state.correctInPhase++;
+        state.score += 10 + Math.min(20, state.combo); // combo bonus
+        pulseBin(binIndex, true);
+
+        if(state.correctInPhase >= 8){
+          state.correctInPhase = 0;
+          flipRule();
+        }
+      } else {
+        state.combo = 0;
+        state.timeLeft -= 2;
+        state.score = Math.max(0, state.score - 5);
+        pulseBin(binIndex, false);
+      }
+
+      state.tile = newTile();
+      renderTile();
+      resetItemPosition();
+      setHUD();
+
+      if(state.timeLeft <= 0 && !state.practice){
+        endRun();
+      }
+    }
+
+    function startRun({practice=false}={}){
+      state = {
+        practice,
+        score: 0,
+        combo: 0,
+        rule: 'color',
+        correctInPhase: 0,
+        timeLeft: practice ? 999999 : 60,
+        tile: newTile(),
+        tickT: null,
+        toastT: null,
+      };
+      overlay.classList.remove('show');
+      updateBins();
+      renderTile();
+      resetItemPosition();
+      setHUD();
+
+      clearInterval(state.tickT);
+      if(!practice){
+        state.tickT = setInterval(()=>{
+          state.timeLeft -= 0.25;
+          setHUD();
+          if(state.timeLeft <= 0){
+            endRun();
+          }
+        }, 250);
+      }
+    }
+
+    function endRun(){
+      clearInterval(state.tickT);
+      overlay.classList.add('show');
+      endScore.textContent = 'Score ' + state.score;
+      endDetails.textContent = 'Best combo this run: ' + state.combo + '. Tip: flips are predictable (every 8 correct).';
+    }
+
+    // Drag/drop (pointer events)
+    let dragging = false;
+    let startOffset = {x:0,y:0};
+
+    function pointerPos(evt){
+      const r = elArena.getBoundingClientRect();
+      return { x: evt.clientX - r.left, y: evt.clientY - r.top, rect: r };
+    }
+
+    elItem.addEventListener('pointerdown', (evt)=>{
+      if(overlay.classList.contains('show')) return;
+      dragging = true;
+      elItem.setPointerCapture(evt.pointerId);
+      elItem.classList.add('dragging');
+
+      const itemRect = elItem.getBoundingClientRect();
+      startOffset.x = evt.clientX - itemRect.left;
+      startOffset.y = evt.clientY - itemRect.top;
+    });
+
+    elItem.addEventListener('pointermove', (evt)=>{
+      if(!dragging) return;
+      const arenaRect = elArena.getBoundingClientRect();
+      const x = evt.clientX - arenaRect.left - startOffset.x + elItem.offsetWidth/2;
+      const y = evt.clientY - arenaRect.top - startOffset.y + elItem.offsetHeight/2;
+      elItem.style.left = x + 'px';
+      elItem.style.top = y + 'px';
+      elItem.style.transform = 'translate(-50%, -50%)';
+    });
+
+    function dropToNearestBin(evt){
+      // If released over any bin: choose that bin.
+      const pt = {x: evt.clientX, y: evt.clientY};
+      for(const b of elBins){
+        const r = b.getBoundingClientRect();
+        if(pt.x >= r.left && pt.x <= r.right && pt.y >= r.top && pt.y <= r.bottom){
+          handleDrop(parseInt(b.dataset.bin,10));
+          return;
+        }
+      }
+      // else snap back
+      resetItemPosition();
+    }
+
+    elItem.addEventListener('pointerup', (evt)=>{
+      if(!dragging) return;
+      dragging = false;
+      elItem.classList.remove('dragging');
+      dropToNearestBin(evt);
+    });
+
+    elItem.addEventListener('pointercancel', ()=>{
+      dragging = false;
+      elItem.classList.remove('dragging');
+      resetItemPosition();
+    });
+
+    playBtn.addEventListener('click', ()=> startRun({practice:false}));
+    practiceBtn.addEventListener('click', ()=> startRun({practice:true}));
+    restartBtn.addEventListener('click', ()=> startRun({practice: state?.practice ?? false}));
+
+    // Start on load
+    startRun({practice:false});
+  </script>
+</body>
+</html>
