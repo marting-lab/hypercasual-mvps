@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Pocket Screw Dock (MVP)</title>
+  <style>
+    :root{
+      --bg:#0b1020;
+      --panel:#131b33;
+      --panel2:#0f1730;
+      --text:#e9edff;
+      --muted:#aab3e6;
+      --danger:#ff4d6d;
+      --ok:#22c55e;
+      --shadow: 0 10px 30px rgba(0,0,0,.35);
+    }
+    *{box-sizing:border-box; -webkit-tap-highlight-color: transparent;}
+    body{margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: radial-gradient(1200px 700px at 50% -20%, #23306b, var(--bg)); color:var(--text);}
+    a{color:#bcd1ff}
+    .wrap{max-width:980px; margin:0 auto; padding:14px;}
+    header{display:flex; gap:12px; align-items:flex-start; justify-content:space-between; margin-bottom:10px;}
+    h1{font-size:18px; margin:0; font-weight:700;}
+    .sub{font-size:12px; color:var(--muted); margin-top:4px;}
+    .btn{border:0; background:#27356f; color:var(--text); padding:10px 12px; border-radius:12px; font-weight:700; box-shadow: var(--shadow); cursor:pointer;}
+    .btn:active{transform: translateY(1px)}
+
+    .top{display:grid; grid-template-columns: 1fr; gap:10px;}
+    .panel{background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02)); border:1px solid rgba(255,255,255,.10); border-radius:16px; padding:12px; box-shadow: var(--shadow);}
+
+    .targets{display:flex; gap:10px; flex-wrap:wrap; align-items:stretch;}
+    .target{flex:1 1 170px; background: rgba(0,0,0,.18); border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:10px; min-width:160px;}
+    .targetHead{display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;}
+    .targetName{font-weight:800; font-size:13px; letter-spacing:.2px}
+    .targetCount{font-variant-numeric: tabular-nums; color:var(--muted); font-size:12px;}
+    .slots{display:flex; gap:6px;}
+    .slot{width:28px; height:28px; border-radius:10px; border:1px dashed rgba(255,255,255,.25); display:grid; place-items:center;}
+    .chip{width:18px; height:18px; border-radius:50%; border:1px solid rgba(0,0,0,.25); box-shadow: inset 0 0 0 2px rgba(255,255,255,.12);}
+
+    .dockRow{display:flex; justify-content:space-between; align-items:center; gap:10px; margin-top:10px;}
+    .dock{display:flex; gap:6px; flex-wrap:wrap;}
+    .dockSlot{width:34px; height:34px; border-radius:12px; border:1px dashed rgba(255,255,255,.25); display:grid; place-items:center; background: rgba(0,0,0,.15)}
+    .dockSlot button{all:unset; width:100%; height:100%; display:grid; place-items:center; cursor:pointer; border-radius:12px;}
+
+    .board{margin-top:10px; display:grid; grid-template-columns: repeat(6, 1fr); gap:10px; align-items:end;}
+    .stack{background: rgba(0,0,0,.22); border:1px solid rgba(255,255,255,.10); border-radius:16px; padding:10px 8px; min-height:220px; position:relative;}
+    .stackTitle{position:absolute; top:8px; left:10px; font-size:11px; color:rgba(255,255,255,.55)}
+    .pile{height:100%; display:flex; flex-direction:column-reverse; justify-content:flex-start; align-items:center; gap:6px; padding-top:18px;}
+
+    .screwBtn{all:unset; width:40px; height:40px; border-radius:50%; display:grid; place-items:center; cursor:pointer; border:1px solid rgba(0,0,0,.28);
+      box-shadow: 0 8px 18px rgba(0,0,0,.25), inset 0 0 0 3px rgba(255,255,255,.10);
+      touch-action: manipulation;
+    }
+    .screwBtn:active{transform: translateY(1px) scale(.98)}
+    .screwBtn[disabled]{opacity:.18; cursor:not-allowed;}
+    .screwMark{width:16px; height:2px; border-radius:2px; background: rgba(255,255,255,.65); transform: rotate(-18deg)}
+
+    .status{display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between; margin-top:10px;}
+    .pill{padding:7px 10px; border-radius:999px; font-size:12px; border:1px solid rgba(255,255,255,.10); background: rgba(0,0,0,.18)}
+
+    .overlay{position:fixed; inset:0; display:none; align-items:center; justify-content:center; background: rgba(0,0,0,.55); padding:18px;}
+    .overlay.show{display:flex;}
+    .modal{max-width:520px; width:100%; border-radius:18px; padding:14px; background: #0f1730; border:1px solid rgba(255,255,255,.14); box-shadow: var(--shadow);}
+    .modal h2{margin:0 0 8px 0; font-size:16px}
+    .modal p{margin:8px 0; color: var(--muted); font-size:13px; line-height:1.4}
+    .row{display:flex; gap:10px; margin-top:12px;}
+    .row .btn{flex:1}
+
+    @media (max-width: 720px){
+      .board{grid-template-columns: repeat(3, 1fr);}
+      .stack{min-height:180px;}
+      .screwBtn{width:38px; height:38px;}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>Pocket Screw Dock (HTML MVP)</h1>
+        <div class="sub">Tap the top screw in any stack. Match the two target colors (3 each) before your dock fills.</div>
+      </div>
+      <button class="btn" id="restartBtn">Restart</button>
+    </header>
+
+    <section class="top panel">
+      <div class="targets" id="targets"></div>
+
+      <div class="dockRow">
+        <div>
+          <div style="font-weight:800; font-size:13px;">Dock</div>
+          <div class="sub">Tap a docked screw to send it to a matching target when available.</div>
+        </div>
+        <div class="dock" id="dock"></div>
+      </div>
+
+      <div class="status">
+        <div class="pill" id="levelPill">Level 1</div>
+        <div class="pill">Peek tokens: <span id="peekCount">1</span> <button class="btn" id="peekBtn" style="margin-left:10px; padding:7px 10px; border-radius:999px;">Use Peek</button></div>
+        <div class="pill" id="messagePill">Ready</div>
+      </div>
+
+      <div style="margin-top:10px" class="sub">
+        <strong>How to play:</strong> Clear the board by moving screws into the two target boxes. Each target needs <strong>3</strong> screws to clear and roll to the next color. If you tap a non-target screw, it goes into the dock. If the dock is full and you tap a non-target screw, you lose.
+      </div>
+
+      <div class="board" id="board"></div>
+    </section>
+  </div>
+
+  <div class="overlay" id="overlay">
+    <div class="modal">
+      <h2 id="endTitle">You win!</h2>
+      <p id="endText"></p>
+      <div class="row">
+        <button class="btn" id="nextBtn">Next level</button>
+        <button class="btn" id="againBtn" style="background:#3a2a66">Play again</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const COLORS = [
+      {id:'red',    name:'Red',    hex:'#ff4d6d'},
+      {id:'blue',   name:'Blue',   hex:'#4da3ff'},
+      {id:'yellow', name:'Yellow', hex:'#ffd166'},
+      {id:'green',  name:'Green',  hex:'#22c55e'},
+      {id:'purple', name:'Purple', hex:'#a78bfa'},
+      {id:'orange', name:'Orange', hex:'#ff8a4d'},
+    ];
+
+    const $ = (id)=>document.getElementById(id);
+
+    let state;
+
+    function randInt(n){ return Math.floor(Math.random()*n); }
+
+    function makeLevel(level){
+      // Tighten difficulty slowly: more depth, smaller dock, fewer peeks.
+      const stacks = 6;
+      const depth = Math.min(4 + Math.floor(level/2), 8);
+      const colorCount = Math.min(5 + Math.floor(level/3), COLORS.length);
+      const dockSize = Math.max(5 - Math.floor(level/3), 3);
+      const peeks = Math.max(1 - Math.floor(level/4), 0);
+
+      // Build stacks with some guaranteed variety.
+      const palette = COLORS.slice(0, colorCount);
+      const board = Array.from({length: stacks}, () => {
+        const arr = [];
+        for(let i=0;i<depth;i++) arr.push(palette[randInt(palette.length)].id);
+        return arr;
+      });
+
+      // Target queue: cycle through palette randomly.
+      const queue = [];
+      for(let i=0;i<12;i++) queue.push(palette[randInt(palette.length)].id);
+
+      return { stacks, depth, colorCount, dockSize, peeks, board, queue };
+    }
+
+    function reset(level=1){
+      const L = makeLevel(level);
+      state = {
+        level,
+        board: L.board,
+        dock: [],
+        dockSize: L.dockSize,
+        peeks: L.peeks,
+        peeking: false,
+        // two targets
+        targets: [
+          { color: L.queue.shift(), count: 0 },
+          { color: L.queue.shift(), count: 0 },
+        ],
+        queue: L.queue,
+        moves: 0,
+        revealedStacks: new Set(),
+        ended: false,
+      };
+      render();
+      setMessage('Ready');
+      hideOverlay();
+    }
+
+    function colorMeta(id){
+      return COLORS.find(c=>c.id===id) || {id, name:id, hex:'#999'};
+    }
+
+    function setMessage(msg, danger=false){
+      const el = $('messagePill');
+      el.textContent = msg;
+      el.style.borderColor = danger ? 'rgba(255,77,109,.5)' : 'rgba(255,255,255,.10)';
+    }
+
+    function renderTargets(){
+      const root = $('targets');
+      root.innerHTML = '';
+      state.targets.forEach((t, idx)=>{
+        const meta = colorMeta(t.color);
+        const box = document.createElement('div');
+        box.className = 'target';
+        box.innerHTML = `
+          <div class="targetHead">
+            <div class="targetName">Target ${idx+1}: <span style="color:${meta.hex}">${meta.name}</span></div>
+            <div class="targetCount">${t.count}/3</div>
+          </div>
+          <div class="slots">
+            ${[0,1,2].map(i=>`<div class="slot">${i<t.count?`<div class="chip" style="background:${meta.hex}"></div>`:''}</div>`).join('')}
+          </div>
+        `;
+        root.appendChild(box);
+      });
+    }
+
+    function renderDock(){
+      const root = $('dock');
+      root.innerHTML = '';
+      for(let i=0;i<state.dockSize;i++){
+        const slot = document.createElement('div');
+        slot.className = 'dockSlot';
+        if(i < state.dock.length){
+          const col = state.dock[i];
+          const meta = colorMeta(col);
+          const btn = document.createElement('button');
+          btn.title = `Send ${meta.name} if it matches a target`;
+          btn.addEventListener('click', ()=>dockTap(i));
+          btn.innerHTML = `<div class="chip" style="background:${meta.hex}; width:22px; height:22px"></div>`;
+          slot.appendChild(btn);
+        }
+        root.appendChild(slot);
+      }
+    }
+
+    function topOfStack(stackIdx){
+      const s = state.board[stackIdx];
+      if(!s || s.length===0) return null;
+      return s[s.length-1];
+    }
+
+    function canSendToTarget(color){
+      return state.targets.some(t=>t.color===color);
+    }
+
+    function sendToTarget(color){
+      const ti = state.targets.findIndex(t=>t.color===color);
+      if(ti === -1) return false;
+      state.targets[ti].count++;
+      if(state.targets[ti].count >= 3){
+        // clear and rotate
+        state.targets[ti].count = 0;
+        state.targets[ti].color = state.queue.length ? state.queue.shift() : state.targets[ti].color;
+        setMessage('Target cleared!');
+      }
+      return true;
+    }
+
+    function stackTap(stackIdx){
+      if(state.ended) return;
+      const color = topOfStack(stackIdx);
+      if(!color) return;
+
+      // remove from stack
+      state.board[stackIdx].pop();
+      state.moves++;
+
+      if(canSendToTarget(color)){
+        sendToTarget(color);
+      } else {
+        if(state.dock.length >= state.dockSize){
+          // lose
+          state.ended = true;
+          showOverlay(false, `Dock is full. You tapped a non-target screw.\nMoves: ${state.moves}`);
+          return;
+        }
+        state.dock.push(color);
+        setMessage('Docked.');
+      }
+
+      // win check
+      if(isWin()){
+        state.ended = true;
+        showOverlay(true, `Board cleared!\nMoves: ${state.moves}`);
+        return;
+      }
+
+      render();
+    }
+
+    function dockTap(dockIdx){
+      if(state.ended) return;
+      const color = state.dock[dockIdx];
+      if(!color) return;
+      if(canSendToTarget(color)){
+        // remove from dock and send
+        state.dock.splice(dockIdx, 1);
+        sendToTarget(color);
+        state.moves++;
+        if(isWin()){
+          state.ended = true;
+          showOverlay(true, `Board cleared!\nMoves: ${state.moves}`);
+          return;
+        }
+        render();
+      } else {
+        setMessage('No matching target for that color yet.', true);
+      }
+    }
+
+    function isWin(){
+      const boardEmpty = state.board.every(s=>s.length===0);
+      return boardEmpty && state.dock.length===0;
+    }
+
+    function renderBoard(){
+      const root = $('board');
+      root.innerHTML = '';
+      for(let i=0;i<state.board.length;i++){
+        const stack = document.createElement('div');
+        stack.className = 'stack';
+
+        const title = document.createElement('div');
+        title.className = 'stackTitle';
+        title.textContent = `Stack ${i+1}`;
+        stack.appendChild(title);
+
+        const pile = document.createElement('div');
+        pile.className = 'pile';
+
+        const arr = state.board[i];
+        const showReveal = state.revealedStacks.has(i);
+
+        // Show only the top 1 screw normally; if revealed, show top 3.
+        const visible = showReveal ? 3 : 1;
+        for(let j=Math.max(0, arr.length-visible); j<arr.length; j++){
+          const col = arr[j];
+          const meta = colorMeta(col);
+          const btn = document.createElement('button');
+          btn.className = 'screwBtn';
+          btn.style.background = meta.hex;
+
+          // Only top screw clickable.
+          const isTop = (j === arr.length-1);
+          if(!isTop) btn.disabled = true;
+          btn.addEventListener('click', ()=>stackTap(i));
+
+          btn.innerHTML = `<div class="screwMark"></div>`;
+          pile.appendChild(btn);
+        }
+
+        // Fill space for readability
+        const spacer = document.createElement('div');
+        spacer.style.flex = '1';
+        pile.appendChild(spacer);
+
+        stack.appendChild(pile);
+        root.appendChild(stack);
+      }
+    }
+
+    function render(){
+      $('levelPill').textContent = `Level ${state.level}`;
+      $('peekCount').textContent = String(state.peeks);
+      $('peekBtn').disabled = state.peeks<=0;
+      renderTargets();
+      renderDock();
+      renderBoard();
+    }
+
+    function usePeek(){
+      if(state.ended) return;
+      if(state.peeks<=0) return;
+      state.peeks--;
+      // Reveal a random non-empty stack for a short moment.
+      const candidates = state.board
+        .map((s, i)=>({len:s.length, i}))
+        .filter(o=>o.len>1)
+        .map(o=>o.i);
+      if(candidates.length===0){
+        setMessage('Nothing to peek.');
+        render();
+        return;
+      }
+      const pick = candidates[randInt(candidates.length)];
+      state.revealedStacks.add(pick);
+      setMessage('Peek!');
+      render();
+      setTimeout(()=>{
+        state.revealedStacks.delete(pick);
+        if(!state.ended) render();
+      }, 1200);
+    }
+
+    function showOverlay(win, text){
+      $('overlay').classList.add('show');
+      $('endTitle').textContent = win ? 'You win!' : 'You lose';
+      $('endTitle').style.color = win ? 'var(--ok)' : 'var(--danger)';
+      $('endText').textContent = text;
+      $('nextBtn').style.display = win ? 'inline-block' : 'none';
+    }
+    function hideOverlay(){ $('overlay').classList.remove('show'); }
+
+    $('restartBtn').addEventListener('click', ()=>reset(state?.level||1));
+    $('againBtn').addEventListener('click', ()=>reset(state.level));
+    $('nextBtn').addEventListener('click', ()=>reset(state.level+1));
+    $('peekBtn').addEventListener('click', usePeek);
+    $('overlay').addEventListener('click', (e)=>{ if(e.target.id==='overlay') hideOverlay(); });
+
+    reset(1);
+  </script>
+</body>
+</html>
