@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Sticker Peel Sort (MVP)</title>
+  <style>
+    :root{
+      --bg:#fbf7ff;
+      --panel:#ffffff;
+      --ink:#1f1b2e;
+      --muted:#6a6480;
+      --shadow:0 10px 30px rgba(20,10,40,.12);
+      --radius:18px;
+      --good:#2ecc71;
+      --bad:#ff5a5f;
+    }
+    *{box-sizing:border-box; touch-action:none; -webkit-tap-highlight-color: transparent;}
+    body{
+      margin:0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: radial-gradient(1000px 600px at 20% -10%, #ffe9f2 0%, transparent 60%),
+                  radial-gradient(900px 700px at 110% 0%, #e9f3ff 0%, transparent 55%),
+                  var(--bg);
+      color:var(--ink);
+    }
+    .wrap{max-width:980px; margin:0 auto; padding:16px;}
+    header{
+      display:flex; gap:12px; align-items:flex-start; justify-content:space-between;
+      margin-bottom:12px;
+    }
+    h1{font-size:18px; margin:0; letter-spacing:.2px;}
+    .sub{font-size:12px; color:var(--muted); margin-top:4px;}
+
+    .hud{display:flex; gap:10px; align-items:center; flex-wrap:wrap; justify-content:flex-end;}
+    .pill{
+      background:rgba(255,255,255,.75);
+      border:1px solid rgba(60,40,110,.12);
+      border-radius:999px;
+      padding:6px 10px;
+      font-size:12px;
+      box-shadow: 0 6px 18px rgba(30,10,60,.08);
+    }
+    button{
+      appearance:none; border:0; border-radius:12px; padding:10px 12px;
+      background:#2b2150; color:white; font-weight:700; font-size:12px;
+      box-shadow: var(--shadow);
+    }
+    button:active{transform: translateY(1px);}
+
+    .grid{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap:12px;
+    }
+    @media (min-width: 860px){
+      .grid{grid-template-columns: 1fr 1fr; align-items:start;}
+    }
+
+    .card{
+      background: rgba(255,255,255,.85);
+      border: 1px solid rgba(60,40,110,.12);
+      border-radius: var(--radius);
+      padding:12px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(6px);
+    }
+
+    .card h2{font-size:13px; margin:0 0 8px 0; color:#2b2150;}
+
+    .sheet{
+      display:grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap:10px;
+    }
+
+    .sticker{
+      height:58px;
+      border-radius:16px;
+      display:flex; align-items:center; justify-content:center;
+      font-weight:800;
+      border: 2px solid rgba(0,0,0,.06);
+      box-shadow: 0 8px 18px rgba(20,10,40,.12);
+      user-select:none;
+      position:relative;
+    }
+    .sticker .emoji{font-size:26px; filter: drop-shadow(0 2px 0 rgba(0,0,0,.06));}
+    .sticker.locked{opacity:.35; filter: grayscale(.15); box-shadow:none;}
+    .sticker.draggable{cursor:grab;}
+    .sticker.dragging{cursor:grabbing; opacity:.95; transform: scale(1.06);}
+
+    .board{position:relative; min-height:330px; overflow:hidden;}
+    .boardInner{
+      position:relative;
+      border-radius: 20px;
+      background: linear-gradient(180deg, #ffffff 0%, #fff8ff 100%);
+      border: 1px solid rgba(60,40,110,.14);
+      min-height:300px;
+    }
+
+    .slots{
+      display:grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap:10px;
+      padding:12px;
+    }
+    .slot{
+      height:76px;
+      border-radius:18px;
+      border:2px dashed rgba(50,30,90,.25);
+      background: rgba(255,255,255,.6);
+      display:flex; align-items:center; justify-content:center;
+      position:relative;
+    }
+    .slot.filled{border-style: solid; border-color: rgba(46,204,113,.45); background: rgba(46,204,113,.08)}
+    .slot .hint{font-size:11px; color:rgba(80,60,130,.55); font-weight:800; letter-spacing:.4px;}
+
+    .clutterRow{
+      display:flex; gap:8px; flex-wrap:wrap;
+      padding:0 12px 12px 12px;
+    }
+    .clutter{
+      width:48px; height:48px; border-radius:14px;
+      border:1px solid rgba(0,0,0,.08);
+      background: rgba(255,255,255,.75);
+      display:flex; align-items:center; justify-content:center;
+      opacity:.9;
+    }
+
+    .toast{
+      position:fixed; left:50%; bottom:16px; transform:translateX(-50%);
+      background: rgba(20,10,40,.92);
+      color:white; padding:10px 12px; border-radius:999px;
+      font-size:12px; font-weight:700;
+      box-shadow: var(--shadow);
+      opacity:0; pointer-events:none;
+      transition: opacity .18s ease;
+    }
+    .toast.show{opacity:1;}
+
+    .how{font-size:12px; color:var(--muted); line-height:1.4;}
+    .how b{color: #2b2150;}
+
+    .floating{
+      position:fixed; left:0; top:0;
+      width:1px; height:1px; pointer-events:none;
+      z-index:9999;
+    }
+
+    a{color:#2b2150}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>Sticker Peel Sort — MVP</h1>
+        <div class="sub">Drag stickers onto the matching silhouettes. Some stickers are stacked: peel in order.</div>
+      </div>
+      <div class="hud">
+        <div class="pill">Score: <span id="score">0</span></div>
+        <div class="pill">Filled: <span id="filled">0</span>/<span id="total">6</span></div>
+        <div class="pill">Clutter: <span id="clutter">0</span>/<span id="clutterMax">6</span></div>
+        <button id="resetBtn" type="button">New Room</button>
+      </div>
+    </header>
+
+    <div class="grid">
+      <section class="card">
+        <h2>Sticker Sheet</h2>
+        <div class="sheet" id="sheet"></div>
+        <p class="how">
+          <b>How to play:</b> Drag an available sticker (bright) to a slot.
+          If it matches, it snaps in. Wrong placements become <b>clutter</b>.
+          Too much clutter and you lose.
+        </p>
+      </section>
+
+      <section class="card board">
+        <h2>Room Board</h2>
+        <div class="boardInner">
+          <div class="slots" id="slots"></div>
+          <div class="clutterRow" id="clutterRow"></div>
+        </div>
+        <p class="how">Tip: aim for a “perfect” clear (no clutter). Future version: collections + daily rooms.</p>
+      </section>
+    </div>
+  </div>
+
+  <div class="floating" id="floating"></div>
+  <div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const stickers = [
+    { id:'plant', emoji:'\uD83C\uDF3F', color:'#b9f6ca', label:'PLANT' },
+    { id:'mug', emoji:'\u2615', color:'#ffe0b2', label:'MUG' },
+    { id:'cat', emoji:'\uD83D\uDC31', color:'#ffcdd2', label:'CAT' },
+    { id:'book', emoji:'\uD83D\uDCD8', color:'#bbdefb', label:'BOOK' },
+    { id:'lamp', emoji:'\uD83D\uDCA1', color:'#fff9c4', label:'LAMP' },
+    { id:'music', emoji:'\uD83C\uDFB5', color:'#d1c4e9', label:'MUSIC' },
+    { id:'cookie', emoji:'\uD83C\uDF6A', color:'#ffecb3', label:'COOKIE' },
+    { id:'leaf', emoji:'\uD83C\uDF43', color:'#c8e6c9', label:'LEAF' },
+    { id:'star', emoji:'\u2B50', color:'#fff59d', label:'STAR' },
+    { id:'heart', emoji:'\uD83D\uDC9C', color:'#f8bbd0', label:'HEART' },
+  ];
+
+  // 5 stacks (2 stickers per stack). Only top is available.
+  const stacks = [
+    ['plant','heart'],
+    ['mug','star'],
+    ['cat','leaf'],
+    ['book','cookie'],
+    ['lamp','music'],
+  ];
+
+  const slotTargets = ['plant','mug','cat','book','lamp','heart'];
+
+  const el = {
+    sheet: document.getElementById('sheet'),
+    slots: document.getElementById('slots'),
+    score: document.getElementById('score'),
+    filled: document.getElementById('filled'),
+    total: document.getElementById('total'),
+    clutter: document.getElementById('clutter'),
+    clutterMax: document.getElementById('clutterMax'),
+    clutterRow: document.getElementById('clutterRow'),
+    resetBtn: document.getElementById('resetBtn'),
+    floating: document.getElementById('floating'),
+    toast: document.getElementById('toast'),
+  };
+
+  const state = {
+    score: 0,
+    clutter: 0,
+    clutterMax: 6,
+    filled: new Set(),
+    stackIndex: new Map(), // stickerId -> index in its stack
+    stackTop: new Map(), // stackId -> stickerId
+    stickerPlaced: new Set(),
+    gameOver: false,
+  };
+
+  function showToast(msg, good=true){
+    el.toast.textContent = msg;
+    el.toast.style.background = good ? 'rgba(20,10,40,.92)' : 'rgba(255,90,95,.95)';
+    el.toast.classList.add('show');
+    setTimeout(() => el.toast.classList.remove('show'), 900);
+  }
+
+  function renderHUD(){
+    el.score.textContent = state.score;
+    el.clutter.textContent = state.clutter;
+    el.clutterMax.textContent = state.clutterMax;
+    el.filled.textContent = state.filled.size;
+    el.total.textContent = slotTargets.length;
+  }
+
+  function stickerById(id){ return stickers.find(s => s.id === id); }
+
+  function computeAvailability(){
+    // initialize map from sticker to its stack and position
+    state.stackIndex.clear();
+    stacks.forEach((stack, i) => {
+      stack.forEach((sid, pos) => state.stackIndex.set(sid, { stack:i, pos }));
+      state.stackTop.set(i, stack[0]);
+    });
+
+    // peel advances: if top placed, next becomes top
+    for (let i=0;i<stacks.length;i++){
+      const stack = stacks[i];
+      let top = null;
+      for (let pos=0;pos<stack.length;pos++){
+        const sid = stack[pos];
+        if (!state.stickerPlaced.has(sid)) { top = sid; break; }
+      }
+      state.stackTop.set(i, top); // can be null
+    }
+  }
+
+  function isStickerAvailable(stickerId){
+    const info = state.stackIndex.get(stickerId);
+    if (!info) return false;
+    return state.stackTop.get(info.stack) === stickerId;
+  }
+
+  function clearUI(){
+    el.sheet.innerHTML = '';
+    el.slots.innerHTML = '';
+    el.clutterRow.innerHTML = '';
+    el.floating.innerHTML = '';
+  }
+
+  function renderBoard(){
+    el.slots.innerHTML = '';
+    slotTargets.forEach((targetId) => {
+      const slot = document.createElement('div');
+      slot.className = 'slot' + (state.filled.has(targetId) ? ' filled' : '');
+      slot.dataset.target = targetId;
+      if (!state.filled.has(targetId)){
+        const hint = document.createElement('div');
+        hint.className = 'hint';
+        hint.textContent = stickerById(targetId).label;
+        slot.appendChild(hint);
+      } else {
+        const done = document.createElement('div');
+        done.style.fontSize = '30px';
+        done.textContent = stickerById(targetId).emoji;
+        slot.appendChild(done);
+      }
+      el.slots.appendChild(slot);
+    });
+  }
+
+  function renderClutter(){
+    el.clutterRow.innerHTML = '';
+    for (let i=0;i<state.clutter;i++){
+      const c = document.createElement('div');
+      c.className = 'clutter';
+      c.textContent = '✖';
+      el.clutterRow.appendChild(c);
+    }
+  }
+
+  function renderSheet(){
+    el.sheet.innerHTML = '';
+
+    // render in a stable order: by stacks, top-to-bottom
+    stacks.forEach((stack) => {
+      stack.forEach((sid) => {
+        const s = stickerById(sid);
+        const cell = document.createElement('div');
+        cell.className = 'sticker';
+        cell.style.background = s.color;
+        cell.dataset.sticker = sid;
+
+        const emoji = document.createElement('div');
+        emoji.className = 'emoji';
+        emoji.textContent = s.emoji;
+        cell.appendChild(emoji);
+
+        if (state.stickerPlaced.has(sid)){
+          cell.style.opacity = '0.25';
+          cell.style.filter = 'grayscale(0.4)';
+        } else if (isStickerAvailable(sid) && !state.gameOver){
+          cell.classList.add('draggable');
+          enableDrag(cell);
+        } else {
+          cell.classList.add('locked');
+        }
+
+        el.sheet.appendChild(cell);
+      });
+    });
+  }
+
+  function checkWinLose(){
+    if (state.filled.size === slotTargets.length){
+      state.gameOver = true;
+      showToast('Room complete! +100', true);
+      state.score += 100;
+      renderHUD();
+      renderSheet();
+      return;
+    }
+    if (state.clutter >= state.clutterMax){
+      state.gameOver = true;
+      showToast('Too much clutter! Tap New Room', false);
+      renderSheet();
+    }
+  }
+
+  function placeSticker(stickerId, slotTarget){
+    if (state.gameOver) return;
+
+    const ok = (stickerId === slotTarget);
+    state.stickerPlaced.add(stickerId);
+
+    if (ok){
+      state.filled.add(slotTarget);
+      state.score += 25;
+      showToast('Perfect snap! +25', true);
+    } else {
+      state.clutter += 1;
+      state.score = Math.max(0, state.score - 5);
+      showToast('Wrong spot… clutter +1', false);
+    }
+
+    computeAvailability();
+    renderHUD();
+    renderBoard();
+    renderClutter();
+    renderSheet();
+    checkWinLose();
+  }
+
+  function enableDrag(sourceEl){
+    let dragging = false;
+    let pointerId = null;
+    let ghost = null;
+    let startRect = null;
+
+    const stickerId = sourceEl.dataset.sticker;
+
+    const onDown = (e) => {
+      if (state.gameOver) return;
+      if (!isStickerAvailable(stickerId)) return;
+      if (state.stickerPlaced.has(stickerId)) return;
+
+      dragging = true;
+      pointerId = e.pointerId;
+      sourceEl.setPointerCapture(pointerId);
+      sourceEl.classList.add('dragging');
+
+      startRect = sourceEl.getBoundingClientRect();
+      ghost = sourceEl.cloneNode(true);
+      ghost.style.position = 'fixed';
+      ghost.style.left = startRect.left + 'px';
+      ghost.style.top = startRect.top + 'px';
+      ghost.style.width = startRect.width + 'px';
+      ghost.style.height = startRect.height + 'px';
+      ghost.style.margin = '0';
+      ghost.style.zIndex = '9999';
+      ghost.style.boxShadow = '0 16px 40px rgba(20,10,40,.22)';
+      ghost.classList.add('dragging');
+      el.floating.appendChild(ghost);
+
+      moveGhost(e);
+    };
+
+    const moveGhost = (e) => {
+      if (!dragging || !ghost) return;
+      const x = e.clientX - startRect.width/2;
+      const y = e.clientY - startRect.height/2;
+      ghost.style.left = x + 'px';
+      ghost.style.top = y + 'px';
+    };
+
+    const onMove = (e) => {
+      if (!dragging) return;
+      moveGhost(e);
+    };
+
+    const onUp = (e) => {
+      if (!dragging) return;
+      dragging = false;
+      sourceEl.classList.remove('dragging');
+
+      // determine drop target
+      const slots = Array.from(document.querySelectorAll('.slot'));
+      const ptX = e.clientX;
+      const ptY = e.clientY;
+
+      let dropped = false;
+      for (const s of slots){
+        const r = s.getBoundingClientRect();
+        if (ptX >= r.left && ptX <= r.right && ptY >= r.top && ptY <= r.bottom){
+          const target = s.dataset.target;
+          if (!state.filled.has(target)){
+            placeSticker(stickerId, target);
+          }
+          dropped = true;
+          break;
+        }
+      }
+
+      if (!dropped){
+        // return sticker (no penalty) — still MVP-friendly
+        showToast('Place it on a silhouette', true);
+      }
+
+      if (ghost && ghost.parentNode) ghost.parentNode.removeChild(ghost);
+      ghost = null;
+
+      try{ sourceEl.releasePointerCapture(pointerId); } catch {}
+      pointerId = null;
+    };
+
+    sourceEl.addEventListener('pointerdown', onDown);
+    sourceEl.addEventListener('pointermove', onMove);
+    sourceEl.addEventListener('pointerup', onUp);
+    sourceEl.addEventListener('pointercancel', onUp);
+  }
+
+  function newGame(){
+    state.score = 0;
+    state.clutter = 0;
+    state.filled = new Set();
+    state.stickerPlaced = new Set();
+    state.gameOver = false;
+
+    computeAvailability();
+    renderHUD();
+    renderBoard();
+    renderClutter();
+    renderSheet();
+    showToast('New room!', true);
+  }
+
+  el.resetBtn.addEventListener('click', newGame);
+
+  // boot
+  computeAvailability();
+  renderHUD();
+  renderBoard();
+  renderClutter();
+  renderSheet();
+})();
+</script>
+</body>
+</html>
