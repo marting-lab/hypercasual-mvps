@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Splitter Switch — MVP</title>
+  <style>
+    :root{
+      --bg:#0b1020;
+      --panel:#121a33;
+      --text:#eef2ff;
+      --muted:#aab3d6;
+      --good:#40d19a;
+      --bad:#ff5c6c;
+      --lane1:#ff4d4d; /* red */
+      --lane2:#4da3ff; /* blue */
+      --lane3:#ffd24d; /* yellow */
+    }
+    *{box-sizing:border-box; -webkit-tap-highlight-color: transparent;}
+    html,body{height:100%;}
+    body{margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); overflow:hidden;}
+
+    .wrap{display:flex; flex-direction:column; height:100%;}
+    header{padding:12px 14px; display:flex; justify-content:space-between; align-items:flex-start; gap:12px;}
+    .title{font-weight:800; letter-spacing:.2px;}
+    .sub{font-size:12px; color:var(--muted); margin-top:2px;}
+    .stats{display:flex; gap:10px; font-size:12px; color:var(--muted); align-items:center;}
+    .pill{background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08); border-radius:999px; padding:6px 10px;}
+    .pill b{color:var(--text)}
+
+    main{flex:1; display:flex; justify-content:center; align-items:stretch; padding:0 10px 10px;}
+    .game{
+      width:min(520px, 100%);
+      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+      border:1px solid rgba(255,255,255,.10);
+      border-radius:18px;
+      overflow:hidden;
+      position:relative;
+      display:flex;
+      flex-direction:column;
+    }
+    canvas{width:100%; height:100%; display:block;}
+
+    .hud{
+      position:absolute; left:12px; right:12px; top:12px;
+      display:flex; justify-content:space-between; align-items:center;
+      pointer-events:none;
+      font-size:12px;
+      color:var(--muted);
+      text-shadow: 0 1px 0 rgba(0,0,0,.35);
+    }
+    .hud .big{font-size:14px; color:var(--text); font-weight:700;}
+
+    .controls{
+      display:grid;
+      grid-template-columns:1fr 1fr 1fr;
+      gap:10px;
+      padding:10px;
+      background:rgba(0,0,0,.25);
+      border-top:1px solid rgba(255,255,255,.08);
+    }
+    button{
+      appearance:none;
+      border:none;
+      border-radius:14px;
+      padding:12px 10px;
+      font-weight:800;
+      color:#0b1020;
+      touch-action:manipulation;
+      cursor:pointer;
+      user-select:none;
+    }
+    .b1{background:var(--lane1);} .b2{background:var(--lane2);} .b3{background:var(--lane3);}
+    .active{outline:3px solid rgba(255,255,255,.75); outline-offset:2px;}
+
+    .overlay{
+      position:absolute; inset:0;
+      display:flex; flex-direction:column;
+      justify-content:center; align-items:center;
+      background:rgba(11,16,32,.72);
+      padding:18px;
+    }
+    .card{
+      width:min(420px, 92%);
+      background:rgba(18,26,51,.92);
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:18px;
+      padding:16px;
+      box-shadow: 0 12px 30px rgba(0,0,0,.35);
+    }
+    .card h2{margin:0 0 8px; font-size:18px;}
+    .card p{margin:8px 0; color:var(--muted); font-size:13px; line-height:1.4;}
+    .row{display:flex; gap:10px; margin-top:12px;}
+    .row .cta{flex:1; background:var(--good);}
+    .row .ghost{flex:1; background:rgba(255,255,255,.10); color:var(--text); border:1px solid rgba(255,255,255,.14);}
+
+    .toast{
+      position:absolute; left:50%; transform:translateX(-50%);
+      bottom:86px;
+      padding:8px 12px;
+      border-radius:999px;
+      background:rgba(0,0,0,.35);
+      border:1px solid rgba(255,255,255,.10);
+      color:var(--text);
+      font-size:12px;
+      opacity:0;
+      transition:opacity .18s ease;
+      pointer-events:none;
+    }
+    .toast.show{opacity:1;}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <div class="title">Splitter Switch <span style="color:var(--muted); font-weight:700">(HTML MVP)</span></div>
+        <div class="sub">One-finger routing. Build streaks. Don’t clog a lane.</div>
+      </div>
+      <div class="stats">
+        <div class="pill">Score: <b id="score">0</b></div>
+        <div class="pill">Streak: <b id="streak">0</b></div>
+        <div class="pill">Lives: <b id="lives">3</b></div>
+      </div>
+    </header>
+
+    <main>
+      <div class="game" id="game">
+        <canvas id="c"></canvas>
+        <div class="hud">
+          <div>
+            <div>Incoming</div>
+            <div class="big" id="incomingLabel">—</div>
+          </div>
+          <div style="text-align:right">
+            <div>Bins want</div>
+            <div class="big" id="binLabel">Red | Blue | Yellow</div>
+          </div>
+        </div>
+        <div class="toast" id="toast">Nice!</div>
+
+        <div class="controls">
+          <button class="b1 active" id="bLeft">LEFT (RED)</button>
+          <button class="b2" id="bMid">MID (BLUE)</button>
+          <button class="b3" id="bRight">RIGHT (YELLOW)</button>
+        </div>
+
+        <div class="overlay" id="overlay">
+          <div class="card">
+            <h2>How to play</h2>
+            <p><b>Tap a lane</b> to set the splitter direction. Route each incoming shape to the bin with the matching color.</p>
+            <p>Correct routes build a <b>streak</b> and speed up the belt. Wrong routes cost a life. 0 lives = game over.</p>
+            <div class="row">
+              <button class="cta" id="start">Start</button>
+              <button class="ghost" id="practice">Practice (slow)</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const scoreEl = document.getElementById('score');
+  const streakEl = document.getElementById('streak');
+  const livesEl = document.getElementById('lives');
+  const incomingLabel = document.getElementById('incomingLabel');
+  const toast = document.getElementById('toast');
+
+  const overlay = document.getElementById('overlay');
+  const startBtn = document.getElementById('start');
+  const practiceBtn = document.getElementById('practice');
+
+  const bLeft = document.getElementById('bLeft');
+  const bMid  = document.getElementById('bMid');
+  const bRight= document.getElementById('bRight');
+
+  const DPR = () => Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+
+  const COLORS = [
+    {name:'Red',    css:'#ff4d4d'},
+    {name:'Blue',   css:'#4da3ff'},
+    {name:'Yellow', css:'#ffd24d'},
+  ];
+  const SHAPES = ['circle','square','triangle'];
+
+  let W=0,H=0,dpr=1;
+  function resize(){
+    dpr = DPR();
+    const rect = canvas.getBoundingClientRect();
+    W = Math.floor(rect.width * dpr);
+    H = Math.floor(rect.height * dpr);
+    canvas.width = W;
+    canvas.height = H;
+  }
+  window.addEventListener('resize', resize);
+
+  // Game state
+  let running=false;
+  let practice=false;
+  let lane=0; // 0 left, 1 mid, 2 right
+  let score=0, streak=0, lives=3;
+  let tPrev=0;
+
+  // One active item at a time (MVP)
+  let item=null;
+  let spawnCooldown=0;
+
+  function rand(n){ return Math.floor(Math.random()*n); }
+
+  function setLane(n){
+    lane=n;
+    bLeft.classList.toggle('active', n===0);
+    bMid.classList.toggle('active', n===1);
+    bRight.classList.toggle('active', n===2);
+  }
+  bLeft.addEventListener('click', () => setLane(0));
+  bMid.addEventListener('click',  () => setLane(1));
+  bRight.addEventListener('click',() => setLane(2));
+
+  // Touch friendliness: prevent double-tap zoom on iOS
+  ['touchstart','touchend'].forEach(evt => {
+    document.addEventListener(evt, e => {
+      if(e.target.tagName === 'BUTTON') e.preventDefault();
+    }, {passive:false});
+  });
+
+  function reset(){
+    score=0; streak=0; lives=3;
+    setLane(0);
+    item=null;
+    spawnCooldown=0;
+    updateUI();
+  }
+
+  function speed(){
+    // pixels per second
+    const base = practice ? 210 : 280;
+    return base + Math.min(420, streak*18);
+  }
+
+  function spawn(){
+    const color = COLORS[rand(COLORS.length)];
+    const shape = SHAPES[rand(SHAPES.length)];
+    item = {
+      x: W*0.5,
+      y: H*0.14,
+      r: Math.min(W,H)*0.04,
+      color,
+      shape,
+      phase: 'down', // down -> tobin
+      tx: 0,
+      ty: 0,
+    };
+    incomingLabel.textContent = `${color.name} ${shape}`;
+  }
+
+  function laneCenterX(i){
+    const margin = W*0.12;
+    const span = W - margin*2;
+    return margin + span*(i+0.5)/3;
+  }
+
+  function toastMsg(msg, good=true){
+    toast.textContent = msg;
+    toast.style.borderColor = good ? 'rgba(64,209,154,.35)' : 'rgba(255,92,108,.35)';
+    toast.style.background = good ? 'rgba(64,209,154,.16)' : 'rgba(255,92,108,.16)';
+    toast.classList.add('show');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(()=>toast.classList.remove('show'), 520);
+  }
+
+  function updateUI(){
+    scoreEl.textContent = score;
+    streakEl.textContent = streak;
+    livesEl.textContent = lives;
+  }
+
+  function endGame(){
+    running=false;
+    overlay.style.display='flex';
+    overlay.querySelector('h2').textContent = 'Game over';
+    overlay.querySelectorAll('p')[0].innerHTML = `Final score: <b>${score}</b>`;
+    overlay.querySelectorAll('p')[1].innerHTML = 'Tip: build streaks early, then switch lanes late.';
+    startBtn.textContent='Restart';
+  }
+
+  function judge(targetLane){
+    // bins are fixed: 0 red, 1 blue, 2 yellow
+    const wanted = COLORS[targetLane];
+    return item && item.color.name === wanted.name;
+  }
+
+  function step(dt){
+    if(!running) return;
+
+    if(!item){
+      spawnCooldown -= dt;
+      if(spawnCooldown <= 0){
+        spawn();
+      }
+      return;
+    }
+
+    const s = speed();
+
+    const splitterY = H*0.62;
+    const binY = H*0.82;
+
+    if(item.phase === 'down'){
+      item.y += s*dt;
+      if(item.y >= splitterY){
+        item.y = splitterY;
+        item.phase = 'tobin';
+        item.tx = laneCenterX(lane);
+        item.ty = binY;
+      }
+    } else {
+      const dx = item.tx - item.x;
+      const dy = item.ty - item.y;
+      const dist = Math.hypot(dx,dy) || 1;
+      const v = s*1.15;
+      const step = v*dt;
+      if(step >= dist){
+        item.x = item.tx; item.y = item.ty;
+        const ok = judge(lane);
+        if(ok){
+          score += 10 + Math.min(40, streak);
+          streak += 1;
+          toastMsg('Correct! +streak', true);
+        } else {
+          lives -= 1;
+          streak = 0;
+          toastMsg('Wrong bin! -life', false);
+          if(lives <= 0){
+            updateUI();
+            item=null;
+            endGame();
+            return;
+          }
+        }
+        updateUI();
+        item=null;
+        spawnCooldown = practice ? 0.55 : Math.max(0.28, 0.55 - streak*0.01);
+      } else {
+        item.x += dx/dist*step;
+        item.y += dy/dist*step;
+      }
+    }
+  }
+
+  function draw(){
+    // background
+    ctx.clearRect(0,0,W,H);
+
+    // panel
+    ctx.fillStyle = 'rgba(0,0,0,.18)';
+    roundRect(10*dpr, 10*dpr, W-20*dpr, H-20*dpr, 18*dpr);
+    ctx.fill();
+
+    // lanes / conveyors
+    const topY = H*0.16;
+    const splitterY = H*0.62;
+    const binY = H*0.82;
+
+    for(let i=0;i<3;i++){
+      const x = laneCenterX(i);
+      // lane line
+      ctx.strokeStyle = 'rgba(255,255,255,.10)';
+      ctx.lineWidth = 6*dpr;
+      ctx.beginPath();
+      ctx.moveTo(x, topY);
+      ctx.lineTo(x, splitterY);
+      ctx.stroke();
+
+      // bin
+      const bw = W*0.22;
+      const bh = H*0.12;
+      const bx = x - bw/2;
+      const by = binY - bh/2;
+      const col = COLORS[i].css;
+      ctx.fillStyle = col;
+      ctx.globalAlpha = 0.16;
+      roundRect(bx, by, bw, bh, 16*dpr);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+
+      ctx.strokeStyle = 'rgba(255,255,255,.18)';
+      ctx.lineWidth = 2*dpr;
+      roundRect(bx, by, bw, bh, 16*dpr);
+      ctx.stroke();
+
+      ctx.fillStyle = 'rgba(255,255,255,.85)';
+      ctx.font = `${12*dpr}px system-ui`;
+      ctx.textAlign='center';
+      ctx.textBaseline='middle';
+      ctx.fillText(COLORS[i].name.toUpperCase(), x, by + bh*0.28);
+    }
+
+    // splitter
+    const sx = laneCenterX(1);
+    ctx.save();
+    ctx.translate(sx, splitterY);
+    const ang = lane===0 ? -0.75 : lane===1 ? 0 : 0.75;
+    ctx.rotate(ang);
+    ctx.fillStyle = 'rgba(255,255,255,.85)';
+    ctx.beginPath();
+    ctx.moveTo(-18*dpr, -8*dpr);
+    ctx.lineTo(22*dpr, 0);
+    ctx.lineTo(-18*dpr, 8*dpr);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // active item
+    if(item){
+      drawShape(item);
+    }
+
+    // subtle vignette
+    const g = ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.2, W/2,H/2, Math.max(W,H)*0.65);
+    g.addColorStop(0,'rgba(0,0,0,0)');
+    g.addColorStop(1,'rgba(0,0,0,.35)');
+    ctx.fillStyle=g;
+    ctx.fillRect(0,0,W,H);
+  }
+
+  function drawShape(o){
+    ctx.save();
+    ctx.translate(o.x,o.y);
+    ctx.fillStyle = o.color.css;
+    ctx.strokeStyle = 'rgba(0,0,0,.35)';
+    ctx.lineWidth = 3*dpr;
+
+    const r = o.r;
+    if(o.shape === 'circle'){
+      ctx.beginPath();
+      ctx.arc(0,0,r,0,Math.PI*2);
+      ctx.fill();
+      ctx.stroke();
+    } else if(o.shape === 'square'){
+      roundRect(-r,-r,r*2,r*2, 10*dpr);
+      ctx.fill();
+      ctx.stroke();
+    } else {
+      // triangle
+      ctx.beginPath();
+      ctx.moveTo(0,-r);
+      ctx.lineTo(r, r);
+      ctx.lineTo(-r, r);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  function roundRect(x,y,w,h,r){
+    const rr = Math.min(r, w/2, h/2);
+    ctx.beginPath();
+    ctx.moveTo(x+rr, y);
+    ctx.arcTo(x+w, y, x+w, y+h, rr);
+    ctx.arcTo(x+w, y+h, x, y+h, rr);
+    ctx.arcTo(x, y+h, x, y, rr);
+    ctx.arcTo(x, y, x+w, y, rr);
+    ctx.closePath();
+  }
+
+  function loop(ts){
+    if(!tPrev) tPrev = ts;
+    const dt = Math.min(0.033, (ts - tPrev)/1000);
+    tPrev = ts;
+    step(dt);
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  startBtn.addEventListener('click', () => {
+    practice=false;
+    overlay.style.display='none';
+    reset();
+    running=true;
+  });
+  practiceBtn.addEventListener('click', () => {
+    practice=true;
+    overlay.style.display='none';
+    reset();
+    running=true;
+  });
+
+  // Boot
+  resize();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
