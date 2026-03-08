@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Lane Shift Factory (MVP)</title>
+  <style>
+    :root{
+      --bg:#0f1220;
+      --panel:#171b2e;
+      --text:#e8ecff;
+      --muted:#aab3da;
+      --lane:#2a2f4c;
+      --good:#44d17a;
+      --bad:#ff4d6d;
+    }
+    html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
+    #wrap{display:flex;flex-direction:column;min-height:100%;}
+    header{padding:14px 14px 10px;}
+    h1{font-size:16px;margin:0 0 6px;letter-spacing:.3px;}
+    .sub{font-size:12px;color:var(--muted);line-height:1.35}
+    #hud{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px;}
+    .pill{background:var(--panel);border:1px solid rgba(255,255,255,.08);padding:6px 10px;border-radius:999px;font-size:12px;}
+    .pill b{font-variant-numeric:tabular-nums;}
+
+    #game{flex:1;display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;padding:10px 14px 14px;}
+    canvas{width:min(520px, 100%);height:auto;aspect-ratio: 9/16;background:linear-gradient(180deg,#0c1022,#0f1220);border-radius:16px;border:1px solid rgba(255,255,255,.09);touch-action:none;}
+
+    #controls{display:flex;gap:10px;justify-content:center;width:min(520px, 100%);}    
+    button{flex:1;background:var(--panel);border:1px solid rgba(255,255,255,.10);color:var(--text);padding:12px 10px;border-radius:14px;font-weight:650;font-size:14px;}
+    button:active{transform:translateY(1px);}
+
+    #overlay{
+      position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:18px;
+      background:rgba(0,0,0,.55);
+      backdrop-filter: blur(6px);
+    }
+    #card{width:min(520px, 100%);background:var(--panel);border:1px solid rgba(255,255,255,.10);border-radius:16px;padding:16px;}
+    #card h2{margin:0 0 8px;font-size:16px;}
+    #card p{margin:8px 0;color:var(--muted);font-size:13px;line-height:1.45}
+    #card ul{margin:8px 0 0 18px;color:var(--muted);font-size:13px;line-height:1.45}
+    #card .row{display:flex;gap:10px;margin-top:12px;}
+    #card .row button{flex:1}
+
+    footer{padding:10px 14px 16px;color:var(--muted);font-size:12px;text-align:center;}
+    a{color:#9cd6ff}
+  </style>
+</head>
+<body>
+<div id="wrap">
+  <header>
+    <h1>Lane Shift Factory — HTML MVP</h1>
+    <div class="sub">
+      How to play: <b>Swipe</b> left/right (or use buttons) to move the current part between <b>3 lanes</b>.
+      Drop it into the matching colored bin to score. Miss = lose a heart.
+    </div>
+    <div id="hud">
+      <div class="pill">Score: <b id="score">0</b></div>
+      <div class="pill">Streak: <b id="streak">0</b></div>
+      <div class="pill">Speed: <b id="speed">1.0</b>x</div>
+      <div class="pill">Hearts: <b id="hearts">3</b></div>
+    </div>
+  </header>
+
+  <main id="game">
+    <canvas id="c" width="450" height="800" aria-label="Game canvas"></canvas>
+    <div id="controls">
+      <button id="left" aria-label="Move left">◀︎ Left</button>
+      <button id="restart" aria-label="Restart">Restart</button>
+      <button id="right" aria-label="Move right">Right ▶︎</button>
+    </div>
+  </main>
+
+  <footer>
+    MVP goal: a tight one-finger core loop. Next iteration: lane locks + reroute tokens + modifiers.
+  </footer>
+</div>
+
+<div id="overlay" role="dialog" aria-modal="true">
+  <div id="card">
+    <h2 id="overTitle">Game over</h2>
+    <p id="overText">Your factory line stopped. Want to run it again?</p>
+    <ul>
+      <li>Match the part color to the bin.</li>
+      <li>Keep a streak to ramp score.</li>
+      <li>Speed increases over time.</li>
+    </ul>
+    <div class="row">
+      <button id="play">Play</button>
+      <button id="close">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+
+  const ui = {
+    score: document.getElementById('score'),
+    streak: document.getElementById('streak'),
+    speed: document.getElementById('speed'),
+    hearts: document.getElementById('hearts'),
+    left: document.getElementById('left'),
+    right: document.getElementById('right'),
+    restart: document.getElementById('restart'),
+    overlay: document.getElementById('overlay'),
+    play: document.getElementById('play'),
+    close: document.getElementById('close')
+  };
+
+  const W = canvas.width, H = canvas.height;
+  const lanes = 3;
+  const laneW = W / lanes;
+  const topY = 80;
+  const bottomY = H - 120;
+  const binH = 92;
+
+  const COLORS = [
+    { name:'Cyan',   hex:'#2ee8ff' },
+    { name:'Amber',  hex:'#ffbf3f' },
+    { name:'Magenta',hex:'#ff4df3' },
+  ];
+
+  let state;
+  function reset(){
+    state = {
+      running: true,
+      score: 0,
+      streak: 0,
+      hearts: 3,
+      speed: 1.0,
+      t: 0,
+      part: spawnPart(),
+      feedback: null, // {text,color,ttl}
+    };
+    hideOverlay();
+    syncHUD();
+  }
+
+  function spawnPart(){
+    const colorIndex = Math.floor(Math.random() * COLORS.length);
+    return {
+      lane: Math.floor(Math.random() * lanes),
+      y: topY,
+      r: 22,
+      colorIndex,
+      wobble: Math.random() * Math.PI * 2,
+    };
+  }
+
+  function moveLane(dir){
+    if(!state.running) return;
+    state.part.lane = clamp(state.part.lane + dir, 0, lanes-1);
+  }
+
+  function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+
+  function goodDrop(){
+    state.streak += 1;
+    const mult = 1 + Math.floor(state.streak / 5);
+    state.score += 10 * mult;
+    state.feedback = { text: `+${10*mult} (x${mult})`, color: '#44d17a', ttl: 0.65 };
+  }
+  function badDrop(){
+    state.hearts -= 1;
+    state.streak = 0;
+    state.feedback = { text: 'MISS', color: '#ff4d6d', ttl: 0.8 };
+    if(state.hearts <= 0){
+      state.running = false;
+      showOverlay();
+    }
+  }
+
+  function update(dt){
+    state.t += dt;
+
+    // gentle speed ramp
+    state.speed = 1.0 + Math.min(2.2, state.t / 28);
+
+    // move part
+    const fall = 165 * state.speed;
+    state.part.y += fall * dt;
+
+    // resolve drop
+    if(state.part.y >= bottomY){
+      const lane = state.part.lane;
+      const targetColor = lane; // bin 0..2 corresponds to color 0..2
+      if(state.part.colorIndex === targetColor) goodDrop(); else badDrop();
+      state.part = spawnPart();
+    }
+
+    // feedback ttl
+    if(state.feedback){
+      state.feedback.ttl -= dt;
+      if(state.feedback.ttl <= 0) state.feedback = null;
+    }
+
+    syncHUD();
+  }
+
+  function syncHUD(){
+    ui.score.textContent = state.score;
+    ui.streak.textContent = state.streak;
+    ui.speed.textContent = state.speed.toFixed(1);
+    ui.hearts.textContent = state.hearts;
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+
+    // background lanes
+    for(let i=0;i<lanes;i++){
+      const x = i * laneW;
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      ctx.fillRect(x+8, topY-40, laneW-16, (bottomY-(topY-40)));
+
+      // dashed lane separators
+      if(i>0){
+        ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+        ctx.setLineDash([10,10]);
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x, topY-40);
+        ctx.lineTo(x, bottomY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+
+    // bins
+    for(let i=0;i<lanes;i++){
+      const x = i * laneW;
+      ctx.fillStyle = COLORS[i].hex;
+      roundRect(ctx, x+10, bottomY, laneW-20, binH, 16);
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      roundRect(ctx, x+10, bottomY, laneW-20, 28, 16);
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.font = '700 13px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(COLORS[i].name.toUpperCase(), x + laneW/2, bottomY + 14);
+    }
+
+    // part
+    const p = state.part;
+    const cx = p.lane * laneW + laneW/2;
+    const wob = Math.sin(state.t*6 + p.wobble) * 2;
+    ctx.fillStyle = COLORS[p.colorIndex].hex;
+    ctx.beginPath();
+    ctx.arc(cx + wob, p.y, p.r, 0, Math.PI*2);
+    ctx.fill();
+
+    // part outline
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(cx + wob, p.y, p.r, 0, Math.PI*2);
+    ctx.stroke();
+
+    // feedback
+    if(state.feedback){
+      ctx.fillStyle = state.feedback.color;
+      ctx.font = '800 28px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const alpha = clamp(state.feedback.ttl / 0.65, 0, 1);
+      ctx.globalAlpha = alpha;
+      ctx.fillText(state.feedback.text, W/2, 60);
+      ctx.globalAlpha = 1;
+    }
+
+    // title inside canvas (small)
+    ctx.fillStyle = 'rgba(255,255,255,0.22)';
+    ctx.font = '700 12px system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('Swipe left/right to route the part', 12, 20);
+  }
+
+  function roundRect(ctx,x,y,w,h,r){
+    const rr = Math.min(r, w/2, h/2);
+    ctx.beginPath();
+    ctx.moveTo(x+rr,y);
+    ctx.arcTo(x+w,y, x+w,y+h, rr);
+    ctx.arcTo(x+w,y+h, x,y+h, rr);
+    ctx.arcTo(x,y+h, x,y, rr);
+    ctx.arcTo(x,y, x+w,y, rr);
+    ctx.closePath();
+  }
+
+  // input: buttons
+  ui.left.addEventListener('click', () => moveLane(-1));
+  ui.right.addEventListener('click', () => moveLane(+1));
+  ui.restart.addEventListener('click', () => reset());
+
+  // input: swipe
+  let touchStartX = null;
+  let touchActive = false;
+
+  function pointerDown(e){
+    touchActive = true;
+    touchStartX = (e.touches ? e.touches[0].clientX : e.clientX);
+  }
+  function pointerUp(e){
+    if(!touchActive) return;
+    touchActive = false;
+    const endX = (e.changedTouches ? e.changedTouches[0].clientX : e.clientX);
+    const dx = endX - touchStartX;
+    const threshold = 26;
+    if(Math.abs(dx) >= threshold){
+      moveLane(dx > 0 ? +1 : -1);
+    }
+  }
+
+  canvas.addEventListener('touchstart', pointerDown, {passive:true});
+  canvas.addEventListener('touchend', pointerUp, {passive:true});
+  canvas.addEventListener('mousedown', pointerDown);
+  window.addEventListener('mouseup', pointerUp);
+
+  // overlay
+  function showOverlay(){ ui.overlay.style.display = 'flex'; }
+  function hideOverlay(){ ui.overlay.style.display = 'none'; }
+  ui.play.addEventListener('click', reset);
+  ui.close.addEventListener('click', hideOverlay);
+  ui.overlay.addEventListener('click', (e)=>{ if(e.target===ui.overlay) hideOverlay(); });
+
+  // game loop
+  let last = performance.now();
+  function frame(now){
+    const dt = Math.min(0.033, (now-last)/1000);
+    last = now;
+    if(state.running) update(dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  reset();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
