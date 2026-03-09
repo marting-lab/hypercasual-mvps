@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Conveyor Color Sorter — MVP</title>
+  <style>
+    :root{
+      --bg:#0f1220;
+      --panel:#171b2e;
+      --text:#e9ecff;
+      --muted:#a9b0d6;
+      --belt:#262b44;
+      --line:#31385a;
+      --red:#ff4d6d;
+      --green:#2ee59d;
+      --blue:#4da3ff;
+      --warn:#ffcc66;
+    }
+    *{box-sizing:border-box; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;}
+    body{margin:0; background:linear-gradient(180deg, #0b0e1a, var(--bg)); color:var(--text);}
+    header{padding:14px 16px 8px;}
+    h1{margin:0; font-size:18px; font-weight:800; letter-spacing:0.2px;}
+    .sub{margin-top:4px; color:var(--muted); font-size:12px; line-height:1.35;}
+    .wrap{max-width:720px; margin:0 auto; padding:0 12px 16px;}
+    .hud{display:flex; gap:10px; align-items:center; justify-content:space-between; margin:10px 0 10px;}
+    .pill{background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.10); padding:8px 10px; border-radius:12px; font-size:13px;}
+    .pill b{font-variant-numeric: tabular-nums;}
+    .game{
+      background:var(--panel);
+      border:1px solid rgba(255,255,255,0.10);
+      border-radius:16px;
+      overflow:hidden;
+      box-shadow: 0 16px 48px rgba(0,0,0,0.35);
+    }
+    canvas{display:block; width:100%; height:auto; touch-action:manipulation;}
+    .controls{display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; padding:12px; background:rgba(0,0,0,0.08); border-top:1px solid rgba(255,255,255,0.08);}
+    button{
+      appearance:none; border:0; border-radius:14px;
+      padding:12px 12px;
+      font-weight:800; font-size:14px;
+      color:#08101a;
+      box-shadow: inset 0 -3px rgba(0,0,0,0.18);
+    }
+    button:active{transform: translateY(1px); box-shadow: inset 0 -1px rgba(0,0,0,0.18);}
+    .bR{background:linear-gradient(180deg, #ff7a8f, var(--red));}
+    .bG{background:linear-gradient(180deg, #72f1c1, var(--green));}
+    .bB{background:linear-gradient(180deg, #88c4ff, var(--blue));}
+    .row{display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;}
+    .link{color:var(--muted); font-size:12px;}
+    .small{font-size:12px; color:var(--muted); line-height:1.35;}
+    .kbd{display:inline-block; padding:1px 6px; border-radius:8px; border:1px solid rgba(255,255,255,0.16); background:rgba(255,255,255,0.06); color:var(--text); font-weight:700;}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Conveyor Color Sorter — MVP</h1>
+      <div class="sub">
+        <b>How to play:</b> Items move on the belt. Tap the matching color button to open that gate briefly.
+        Sort correctly to build a streak. Miss or mis-sort and you lose a heart. Survive as long as you can.
+      </div>
+    </header>
+
+    <div class="hud">
+      <div class="pill">Score: <b id="score">0</b> · Streak: <b id="streak">0</b></div>
+      <div class="pill">Hearts: <b id="hearts">3</b> · Speed: <b id="speed">1.0</b>x</div>
+    </div>
+
+    <div class="game">
+      <canvas id="c" width="720" height="540" aria-label="game canvas"></canvas>
+      <div class="controls">
+        <button class="bR" id="btnR" aria-label="Open red gate">RED</button>
+        <button class="bG" id="btnG" aria-label="Open green gate">GREEN</button>
+        <button class="bB" id="btnB" aria-label="Open blue gate">BLUE</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="pill small">
+        Tip: on desktop you can also press <span class="kbd">1</span>/<span class="kbd">2</span>/<span class="kbd">3</span>.
+      </div>
+      <div class="pill small">
+        Twist: every run has a <b>jammed gate</b> (opens slightly late). Learn the timing.
+      </div>
+    </div>
+
+    <p class="link">Prototype folder: <code>prototypes/conveyor-color-sorter/</code></p>
+  </div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+
+  const scoreEl = document.getElementById('score');
+  const streakEl = document.getElementById('streak');
+  const heartsEl = document.getElementById('hearts');
+  const speedEl = document.getElementById('speed');
+
+  const COLORS = [
+    { key:'R', name:'Red',   fill:'#ff4d6d' },
+    { key:'G', name:'Green', fill:'#2ee59d' },
+    { key:'B', name:'Blue',  fill:'#4da3ff' },
+  ];
+
+  // Layout
+  const W = canvas.width;
+  const H = canvas.height;
+  const belt = { x: 60, y: 240, w: W-120, h: 74 };
+  const bins = [
+    { key:'R', x: 120, y: belt.y + belt.h + 18, w: 140, h: 150 },
+    { key:'G', x: (W-140)/2, y: belt.y + belt.h + 18, w: 140, h: 150 },
+    { key:'B', x: W-120-140, y: belt.y + belt.h + 18, w: 140, h: 150 },
+  ];
+
+  // Game state
+  let score = 0;
+  let streak = 0;
+  let hearts = 3;
+  let t = 0;
+  let paused = false;
+
+  // Difficulty ramp
+  let baseSpeed = 120; // px/s
+  let speedMul = 1.0;
+  let spawnEvery = 0.95; // seconds
+
+  const items = []; // {key, x, y, r, sorted:false}
+
+  // Gates open briefly when pressed
+  const gates = {
+    R: { open:0 },
+    G: { open:0 },
+    B: { open:0 },
+  };
+
+  // Twist: one jammed gate has input lag
+  const jammedKey = ['R','G','B'][Math.floor(Math.random()*3)];
+  const jamDelayMs = 120; // noticeable but not horrible
+
+  function reset(){
+    score = 0; streak = 0; hearts = 3;
+    baseSpeed = 120; speedMul = 1.0; spawnEvery = 0.95;
+    items.length = 0;
+    for(const k in gates) gates[k].open = 0;
+    t = 0;
+    paused = false;
+    render();
+    syncHud();
+  }
+
+  function syncHud(){
+    scoreEl.textContent = String(score);
+    streakEl.textContent = String(streak);
+    heartsEl.textContent = String(hearts);
+    speedEl.textContent = speedMul.toFixed(1);
+  }
+
+  function randColorKey(){
+    return COLORS[Math.floor(Math.random()*COLORS.length)].key;
+  }
+
+  let spawnAcc = 0;
+  function spawnItem(){
+    const key = randColorKey();
+    items.push({
+      key,
+      x: belt.x - 30,
+      y: belt.y + belt.h/2,
+      r: 18,
+      sorted: false,
+    });
+  }
+
+  function openGate(key){
+    if(paused) return;
+    const doOpen = () => {
+      gates[key].open = 0.22; // seconds
+    };
+
+    if(key === jammedKey){
+      setTimeout(doOpen, jamDelayMs);
+    } else {
+      doOpen();
+    }
+  }
+
+  function loseHeart(reason){
+    hearts -= 1;
+    streak = 0;
+    if(hearts <= 0){
+      paused = true;
+      // small delay before showing prompt
+      setTimeout(() => {
+        if(confirm(`Game over.\n\nReason: ${reason}\nScore: ${score}\n\nPlay again?`)){
+          reset();
+        }
+      }, 60);
+    }
+    syncHud();
+  }
+
+  function rampDifficulty(){
+    // Every 10 score, nudge up speed and spawn rate.
+    speedMul = 1.0 + Math.min(2.0, score / 40);
+    spawnEvery = Math.max(0.45, 0.95 - score*0.008);
+  }
+
+  function update(dt){
+    if(paused) return;
+
+    t += dt;
+    spawnAcc += dt;
+    while(spawnAcc >= spawnEvery){
+      spawnAcc -= spawnEvery;
+      spawnItem();
+    }
+
+    for(const k in gates){
+      gates[k].open = Math.max(0, gates[k].open - dt);
+    }
+
+    const speed = baseSpeed * speedMul;
+
+    for(const it of items){
+      if(it.sorted) continue;
+      it.x += speed * dt;
+
+      // Check gate zones (above each bin)
+      for(const b of bins){
+        const gateZoneX = b.x + b.w/2;
+        const inZone = Math.abs(it.x - gateZoneX) < 16;
+        if(inZone && gates[b.key].open > 0){
+          // Gate is open; divert item down into bin.
+          if(it.key === b.key){
+            it.sorted = true;
+            score += 1;
+            streak += 1;
+            if(streak % 5 === 0) score += 1; // tiny bonus
+            rampDifficulty();
+            syncHud();
+          } else {
+            it.sorted = true;
+            loseHeart('Wrong color sorted');
+          }
+        }
+      }
+
+      // Missed the end of belt
+      if(!it.sorted && it.x > belt.x + belt.w + 24){
+        it.sorted = true;
+        loseHeart('Missed item (fell into crusher)');
+      }
+    }
+
+    // Cleanup
+    for(let i=items.length-1; i>=0; i--){
+      if(items[i].sorted) items.splice(i, 1);
+    }
+  }
+
+  function drawRoundedRect(x,y,w,h,r){
+    const rr = Math.min(r, w/2, h/2);
+    ctx.beginPath();
+    ctx.moveTo(x+rr, y);
+    ctx.arcTo(x+w, y, x+w, y+h, rr);
+    ctx.arcTo(x+w, y+h, x, y+h, rr);
+    ctx.arcTo(x, y+h, x, y, rr);
+    ctx.arcTo(x, y, x+w, y, rr);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function render(){
+    // Background
+    ctx.clearRect(0,0,W,H);
+
+    // Subtle grid
+    ctx.save();
+    ctx.globalAlpha = 0.12;
+    ctx.strokeStyle = '#31385a';
+    for(let x=0; x<=W; x+=36){
+      ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
+    }
+    for(let y=0; y<=H; y+=36){
+      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+    }
+    ctx.restore();
+
+    // Belt
+    ctx.fillStyle = '#262b44';
+    drawRoundedRect(belt.x, belt.y, belt.w, belt.h, 16);
+
+    // Moving belt lines
+    ctx.save();
+    ctx.globalAlpha = 0.35;
+    ctx.strokeStyle = '#31385a';
+    ctx.lineWidth = 6;
+    const off = (Date.now() / 20) % 36;
+    for(let x=belt.x - 50 + off; x < belt.x + belt.w + 50; x += 36){
+      ctx.beginPath();
+      ctx.moveTo(x, belt.y + belt.h - 10);
+      ctx.lineTo(x + 28, belt.y + 10);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Bins + gates
+    for(const b of bins){
+      const color = COLORS.find(c => c.key === b.key).fill;
+
+      // Bin body
+      ctx.save();
+      ctx.globalAlpha = 0.18;
+      ctx.fillStyle = color;
+      drawRoundedRect(b.x, b.y, b.w, b.h, 18);
+      ctx.restore();
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(b.x+1, b.y+1, b.w-2, b.h-2);
+
+      // Label
+      ctx.fillStyle = 'rgba(233,236,255,0.85)';
+      ctx.font = '800 16px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText(b.key, b.x + b.w/2, b.y + 26);
+
+      // Gate above bin
+      const gateX = b.x + b.w/2 - 20;
+      const gateY = belt.y + belt.h - 8;
+      const gateW = 40;
+      const open = gates[b.key].open;
+      const lift = open > 0 ? 22 : 0;
+
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      drawRoundedRect(gateX, gateY - lift, gateW, 14, 6);
+
+      // jam indicator
+      if(b.key === jammedKey){
+        ctx.fillStyle = '#ffcc66';
+        ctx.font = '700 12px system-ui';
+        ctx.fillText('JAM', b.x + b.w/2, b.y + b.h - 18);
+      }
+    }
+
+    // Items
+    for(const it of items){
+      const color = COLORS.find(c => c.key === it.key).fill;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(it.x, it.y, it.r, 0, Math.PI*2);
+      ctx.fill();
+
+      // Outline
+      ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Tiny icon
+      ctx.fillStyle = 'rgba(8,16,26,0.75)';
+      ctx.font = '900 12px system-ui';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(it.key, it.x, it.y+1);
+    }
+
+    // Top text
+    ctx.fillStyle = 'rgba(233,236,255,0.85)';
+    ctx.font = '800 14px system-ui';
+    ctx.textAlign = 'left';
+    ctx.fillText('Tap gates to sort before the end →', belt.x, belt.y - 14);
+
+    // Crusher
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    drawRoundedRect(belt.x + belt.w + 10, belt.y - 8, 40, belt.h + 16, 14);
+    ctx.fillStyle = 'rgba(255,255,255,0.30)';
+    ctx.font = '900 11px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText('X', belt.x + belt.w + 30, belt.y + belt.h/2 + 3);
+  }
+
+  // Main loop
+  let last = performance.now();
+  function frame(now){
+    const dt = Math.min(0.033, (now - last) / 1000);
+    last = now;
+    update(dt);
+    render();
+    requestAnimationFrame(frame);
+  }
+
+  // Controls
+  document.getElementById('btnR').addEventListener('pointerdown', () => openGate('R'));
+  document.getElementById('btnG').addEventListener('pointerdown', () => openGate('G'));
+  document.getElementById('btnB').addEventListener('pointerdown', () => openGate('B'));
+
+  window.addEventListener('keydown', (e) => {
+    if(e.key === '1') openGate('R');
+    if(e.key === '2') openGate('G');
+    if(e.key === '3') openGate('B');
+    if(e.key.toLowerCase() === 'r') reset();
+  });
+
+  // Start
+  reset();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
