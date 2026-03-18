@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Gate Flip Sort</title>
+  <style>
+    :root{
+      --bg:#0f1226; --panel:#171b35; --text:#f3f5ff; --muted:#9aa3c7;
+      --red:#ff5c7a; --blue:#58a6ff; --yellow:#ffd84d; --green:#43d17a;
+    }
+    *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+    body{margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:linear-gradient(180deg,#10142d,#0a0d1d); color:var(--text); min-height:100svh; display:flex; justify-content:center}
+    .app{width:min(100vw,480px); padding:12px 12px 24px; display:flex; flex-direction:column; gap:10px}
+    .card{background:rgba(23,27,53,.92); border:1px solid rgba(255,255,255,.08); border-radius:18px; box-shadow:0 12px 30px rgba(0,0,0,.28)}
+    .top{padding:12px 14px; display:grid; grid-template-columns:repeat(4,1fr); gap:8px; text-align:center}
+    .label{font-size:12px; color:var(--muted)}
+    .value{font-size:20px; font-weight:800}
+    .how{padding:12px 14px; line-height:1.35; color:#d9def7; font-size:14px}
+    .game{padding:10px}
+    canvas{width:100%; aspect-ratio:9/16; background:#0b0f22; border-radius:16px; display:block}
+    .controls{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:10px}
+    button{border:0; border-radius:14px; padding:14px 10px; font-size:16px; font-weight:800; color:white; background:#2a3161; box-shadow:inset 0 -3px 0 rgba(0,0,0,.22)}
+    button.active{outline:3px solid white}
+    .lane1{background:linear-gradient(180deg,#ff6d88,#d94364)}
+    .lane2{background:linear-gradient(180deg,#64b3ff,#377ee8)}
+    .lane3{background:linear-gradient(180deg,#ffd95b,#e6b91e); color:#342900}
+    .footer{display:flex; gap:8px}
+    .footer button{flex:1}
+  </style>
+</head>
+<body>
+<div class="app">
+  <div class="card top">
+    <div><div class="label">Score</div><div id="score" class="value">0</div></div>
+    <div><div class="label">Lives</div><div id="lives" class="value">3</div></div>
+    <div><div class="label">Combo</div><div id="combo" class="value">x1</div></div>
+    <div><div class="label">Pulse</div><div id="pulse" class="value">0%</div></div>
+  </div>
+  <div class="card how">
+    <strong>How to play:</strong> tap a lane button to choose the active gate. Packages fall from the top. Catch a package when it reaches the delivery zone by matching its color to the selected lane. Every 5 perfect deliveries charges a <em>paint pulse</em> that converts the next 3 packages into your active lane color.
+  </div>
+  <div class="card game">
+    <canvas id="game" width="432" height="768"></canvas>
+    <div class="controls">
+      <button id="b0" class="lane1 active">Left lane</button>
+      <button id="b1" class="lane2">Middle lane</button>
+      <button id="b2" class="lane3">Right lane</button>
+    </div>
+  </div>
+  <div class="footer">
+    <button id="restart">Restart</button>
+  </div>
+</div>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const colors = ['#ff5c7a','#58a6ff','#ffd84d'];
+const laneButtons = [document.getElementById('b0'),document.getElementById('b1'),document.getElementById('b2')];
+const scoreEl = document.getElementById('score');
+const livesEl = document.getElementById('lives');
+const comboEl = document.getElementById('combo');
+const pulseEl = document.getElementById('pulse');
+const W = canvas.width, H = canvas.height;
+const laneXs = [W*0.18, W*0.5, W*0.82];
+const deliveryY = H*0.84;
+let activeLane = 0;
+let items = [];
+let score = 0, lives = 3, combo = 0, bestStreak = 0;
+let spawnTimer = 0, lastTime = 0, speed = 130;
+let pulseCharge = 0, pulseShots = 0, gameOver = false;
+let flash = 0;
+
+function setLane(i){ activeLane = i; laneButtons.forEach((b,idx)=>b.classList.toggle('active', idx===i)); }
+laneButtons.forEach((b,i)=> b.addEventListener('click',()=>setLane(i)));
+document.getElementById('restart').addEventListener('click', reset);
+
+function reset(){
+  items = []; score = 0; lives = 3; combo = 0; bestStreak = 0; spawnTimer = 0; lastTime = 0; speed = 130;
+  pulseCharge = 0; pulseShots = 0; gameOver = false; flash = 0; setLane(0); updateHud(); requestAnimationFrame(loop);
+}
+
+function updateHud(){
+  scoreEl.textContent = score;
+  livesEl.textContent = lives;
+  comboEl.textContent = 'x' + Math.max(1, combo);
+  pulseEl.textContent = Math.min(100, pulseCharge * 20) + '%';
+}
+
+function spawnItem(){
+  let lane = Math.floor(Math.random()*3);
+  let color = pulseShots > 0 ? activeLane : Math.floor(Math.random()*3);
+  if (pulseShots > 0) pulseShots--;
+  items.push({lane, color, y:-30, size:26 + Math.random()*12, wobble:Math.random()*6});
+}
+
+function miss(){
+  lives--; combo = 0; pulseCharge = 0; flash = 10;
+  if (lives <= 0) gameOver = true;
+}
+
+function hit(){
+  combo++;
+  bestStreak++;
+  score += 10 * Math.max(1, combo);
+  pulseCharge++;
+  if (pulseCharge >= 5){ pulseCharge = 0; pulseShots = 3; }
+}
+
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle = flash > 0 ? '#341827' : '#10142d';
+  ctx.fillRect(0,0,W,H);
+
+  for(let i=0;i<3;i++){
+    const x = laneXs[i];
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 84;
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x, 70); ctx.lineTo(x, H-110); ctx.stroke();
+
+    ctx.fillStyle = i===activeLane ? colors[i] : 'rgba(255,255,255,0.18)';
+    ctx.fillRect(x-58, deliveryY+34, 116, 22);
+
+    ctx.fillStyle = colors[i];
+    ctx.globalAlpha = 0.9;
+    ctx.fillRoundRect?.(x-46, H-92, 92, 42, 14);
+    if(!ctx.fillRoundRect){ roundRect(x-46,H-92,92,42,14,colors[i], true); }
+    ctx.globalAlpha = 1;
+  }
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+  ctx.lineWidth = 3;
+  ctx.setLineDash([10,8]);
+  ctx.beginPath(); ctx.moveTo(28, deliveryY); ctx.lineTo(W-28, deliveryY); ctx.stroke();
+  ctx.setLineDash([]);
+
+  items.forEach(it=>{
+    const x = laneXs[it.lane] + Math.sin((it.y+it.wobble)/40)*6;
+    roundRect(x-it.size, it.y-it.size, it.size*2, it.size*2, 12, colors[it.color], true);
+    ctx.fillStyle = 'rgba(255,255,255,.42)';
+    roundRect(x-it.size+8, it.y-it.size+8, it.size*0.9, it.size*0.55, 8, 'rgba(255,255,255,.22)', true);
+  });
+
+  if (pulseShots > 0){
+    ctx.fillStyle = 'rgba(255,255,255,.9)';
+    ctx.font = 'bold 20px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText('PAINT PULSE x' + pulseShots, W/2, 42);
+  }
+
+  if (gameOver){
+    ctx.fillStyle = 'rgba(4,8,20,.82)'; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = 'white'; ctx.textAlign='center';
+    ctx.font = 'bold 42px system-ui'; ctx.fillText('JAM!', W/2, H/2-24);
+    ctx.font = '20px system-ui'; ctx.fillText('Final score: ' + score, W/2, H/2+14);
+    ctx.fillText('Tap Restart to play again', W/2, H/2+48);
+  }
+}
+
+function roundRect(x,y,w,h,r,color,fill){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+  if(fill){ ctx.fillStyle = color; ctx.fill(); } else { ctx.strokeStyle = color; ctx.stroke(); }
+}
+
+function update(dt){
+  if (gameOver) return;
+  flash = Math.max(0, flash - dt*20);
+  speed += dt * 2.2;
+  spawnTimer -= dt;
+  const spawnEvery = Math.max(0.38, 0.88 - score/900);
+  if (spawnTimer <= 0){ spawnItem(); spawnTimer = spawnEvery; }
+
+  for(let i=items.length-1;i>=0;i--){
+    const it = items[i];
+    it.y += speed * dt;
+    if (it.y >= deliveryY){
+      if (it.lane === activeLane && it.color === activeLane) hit();
+      else miss();
+      items.splice(i,1);
+      updateHud();
+    }
+  }
+}
+
+function loop(ts){
+  if (!lastTime) lastTime = ts;
+  const dt = Math.min(0.033, (ts - lastTime)/1000);
+  lastTime = ts;
+  update(dt);
+  draw();
+  if (!gameOver) requestAnimationFrame(loop); else draw();
+}
+
+reset();
+</script>
+</body>
+</html>
