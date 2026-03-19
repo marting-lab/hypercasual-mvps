@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Gate Flip Jam</title>
+  <style>
+    :root{
+      --bg:#f7f4ee;
+      --panel:#fffdf8;
+      --ink:#23212b;
+      --muted:#6f6a78;
+      --grid:#d8d1c6;
+      --shadow:0 10px 30px rgba(35,33,43,.12);
+      --red:#ff6b6b;
+      --blue:#4d96ff;
+      --green:#62c370;
+      --yellow:#ffbf3c;
+      --purple:#a66cff;
+      --good:#2cb67d;
+      --bad:#ef476f;
+    }
+    *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    body{
+      margin:0;
+      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      background:linear-gradient(180deg,#fffaf0 0%, var(--bg) 100%);
+      color:var(--ink);
+      min-height:100vh;
+    }
+    .wrap{
+      max-width:920px;
+      margin:0 auto;
+      padding:16px 14px 28px;
+    }
+    .top{
+      display:grid;
+      gap:12px;
+      grid-template-columns:1fr;
+    }
+    .hero,.hud,.card{
+      background:var(--panel);
+      border:1px solid rgba(35,33,43,.08);
+      border-radius:20px;
+      box-shadow:var(--shadow);
+    }
+    .hero{padding:16px 18px}
+    h1{margin:0 0 6px;font-size:clamp(28px,5vw,42px);line-height:1}
+    .sub{margin:0;color:var(--muted);font-size:15px}
+    .hud{
+      padding:12px;
+      display:grid;
+      gap:10px;
+      grid-template-columns:repeat(4, minmax(0,1fr));
+      align-items:center;
+      text-align:center;
+      font-weight:700;
+    }
+    .metric span{display:block;font-size:12px;color:var(--muted);font-weight:600;margin-bottom:4px}
+    .play-area{display:grid;gap:14px;margin-top:14px}
+    .board-card{padding:14px}
+    .board{
+      display:grid;
+      grid-template-columns:repeat(6, minmax(0,1fr));
+      gap:6px;
+      aspect-ratio:1/1;
+      width:min(100%, 540px);
+      margin:0 auto;
+      touch-action:manipulation;
+    }
+    .cell{
+      position:relative;
+      border-radius:18px;
+      border:1px solid rgba(35,33,43,.08);
+      background:#f2ede4;
+      overflow:hidden;
+      min-height:48px;
+    }
+    .cell.empty::after{
+      content:"";
+      position:absolute;inset:10px;
+      border-radius:14px;
+      border:2px dashed rgba(35,33,43,.06);
+    }
+    .wall{background:#cbc2b5}
+    .spawn{background:linear-gradient(180deg,#dff3ff,#cce8ff)}
+    .exit{background:linear-gradient(180deg,#f7f1e2,#efe4cc)}
+    .exit::before{
+      content:""; position:absolute; inset:12px; border-radius:14px; opacity:.95;
+    }
+    .exit.red::before{background:var(--red)}
+    .exit.blue::before{background:var(--blue)}
+    .exit.green::before{background:var(--green)}
+    .exit.yellow::before{background:var(--yellow)}
+    .gate{
+      background:#ebe4d7;
+      cursor:pointer;
+    }
+    .gate .arrow{
+      position:absolute; inset:0; display:grid; place-items:center;
+      font-size:28px; font-weight:900; color:#6a5e50;
+      user-select:none;
+    }
+    .gate .hint{position:absolute;bottom:4px;right:6px;font-size:10px;color:rgba(35,33,43,.4);font-weight:800}
+    .capsule{
+      position:absolute;
+      inset:10px;
+      border-radius:999px;
+      border:3px solid rgba(255,255,255,.85);
+      box-shadow: inset 0 -6px 0 rgba(0,0,0,.08), 0 4px 10px rgba(0,0,0,.12);
+      z-index:3;
+    }
+    .capsule.red{background:var(--red)} .capsule.blue{background:var(--blue)} .capsule.green{background:var(--green)} .capsule.yellow{background:var(--yellow)}
+    .selected{outline:3px solid rgba(77,150,255,.35)}
+    .controls{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:12px}
+    button{
+      border:0;border-radius:14px;padding:12px 16px;font-weight:800;font-size:14px;cursor:pointer;
+      background:#23212b;color:white;box-shadow:var(--shadow);
+    }
+    button.secondary{background:#ece6db;color:var(--ink)}
+    .card{padding:14px 16px}
+    .card h2{margin:0 0 10px;font-size:18px}
+    .card p,.card li{color:#4f4a57;line-height:1.45}
+    .status{font-weight:800;min-height:24px;text-align:center;margin-top:8px}
+    .good{color:var(--good)} .bad{color:var(--bad)}
+    .list{padding-left:20px;margin:8px 0 0}
+    @media (min-width: 860px){
+      .play-area{grid-template-columns:minmax(0,580px) minmax(250px,1fr);align-items:start}
+      .top{grid-template-columns:minmax(0,1fr)}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="top">
+      <div class="hero">
+        <h1>Gate Flip Jam</h1>
+        <p class="sub">Route moving capsules into matching exits. Tap arrow gates to rotate the flow before the board jams.</p>
+      </div>
+      <div class="hud">
+        <div class="metric"><span>Level</span><strong id="levelLabel">1 / 5</strong></div>
+        <div class="metric"><span>Delivered</span><strong id="deliveredLabel">0 / 6</strong></div>
+        <div class="metric"><span>Hearts</span><strong id="heartsLabel">3</strong></div>
+        <div class="metric"><span>Time</span><strong id="timeLabel">45</strong></div>
+      </div>
+    </section>
+
+    <section class="play-area">
+      <div class="board-card hero">
+        <div id="board" class="board" aria-label="Game board"></div>
+        <div id="status" class="status">Tap any arrow tile to rotate it.</div>
+        <div class="controls">
+          <button id="startBtn">Start level</button>
+          <button id="pauseBtn" class="secondary">Pause</button>
+          <button id="resetBtn" class="secondary">Reset level</button>
+        </div>
+      </div>
+
+      <aside class="card">
+        <h2>How to play</h2>
+        <ul class="list">
+          <li>Capsules spawn on the left side and move automatically every beat.</li>
+          <li>Tap an arrow gate to rotate it clockwise.</li>
+          <li>Send each color into the matching exit on the right.</li>
+          <li>Wrong exits or blocked traffic cost a heart.</li>
+          <li>Deliver the target amount before time runs out.</li>
+        </ul>
+        <p><strong>MVP note:</strong> this is a minimal HTML prototype focused on the core loop: readable routing, quick taps, instant fail/success feedback, and mobile-friendly play.</p>
+      </aside>
+    </section>
+  </div>
+
+  <script>
+    const SIZE = 6;
+    const DIRS = {
+      up: [0,-1], right:[1,0], down:[0,1], left:[-1,0]
+    };
+    const ROTATE = { up:'right', right:'down', down:'left', left:'up' };
+    const ARROW = { up:'↑', right:'→', down:'↓', left:'←' };
+    const COLORS = ['red','blue','green','yellow'];
+
+    const levels = [
+      {
+        time: 45, hearts: 3, target: 6,
+        spawns: [{x:0,y:1},{x:0,y:3}],
+        exits: [
+          {x:5,y:0,color:'red'}, {x:5,y:2,color:'blue'}, {x:5,y:3,color:'green'}, {x:5,y:5,color:'yellow'}
+        ],
+        gates: [
+          {x:1,y:1,dir:'right'}, {x:2,y:1,dir:'down'}, {x:2,y:3,dir:'right'}, {x:3,y:2,dir:'right'},
+          {x:3,y:4,dir:'up'}, {x:4,y:1,dir:'down'}, {x:4,y:4,dir:'up'}
+        ],
+        walls: [{x:1,y:4},{x:3,y:0}],
+        queue: ['red','blue','green','yellow','blue','red','green','yellow','red','green']
+      },
+      {
+        time: 42, hearts: 3, target: 7,
+        spawns: [{x:0,y:2},{x:0,y:4}],
+        exits: [
+          {x:5,y:1,color:'blue'}, {x:5,y:2,color:'red'}, {x:5,y:4,color:'yellow'}, {x:5,y:5,color:'green'}
+        ],
+        gates: [
+          {x:1,y:2,dir:'right'}, {x:1,y:4,dir:'up'}, {x:2,y:1,dir:'right'}, {x:2,y:3,dir:'down'},
+          {x:3,y:1,dir:'down'}, {x:3,y:4,dir:'right'}, {x:4,y:2,dir:'up'}, {x:4,y:4,dir:'right'}
+        ],
+        walls: [{x:2,y:5},{x:3,y:3}],
+        queue: ['blue','red','yellow','green','red','blue','yellow','green','blue','red']
+      },
+      {
+        time: 40, hearts: 3, target: 8,
+        spawns: [{x:0,y:0},{x:0,y:5}],
+        exits: [
+          {x:5,y:0,color:'green'}, {x:5,y:1,color:'yellow'}, {x:5,y:3,color:'red'}, {x:5,y:5,color:'blue'}
+        ],
+        gates: [
+          {x:1,y:0,dir:'down'}, {x:1,y:4,dir:'right'}, {x:2,y:1,dir:'right'}, {x:2,y:4,dir:'up'},
+          {x:3,y:0,dir:'down'}, {x:3,y:2,dir:'right'}, {x:3,y:5,dir:'up'}, {x:4,y:3,dir:'right'}
+        ],
+        walls: [{x:2,y:2},{x:4,y:1}],
+        queue: ['green','yellow','red','blue','yellow','green','blue','red','green','yellow']
+      },
+      {
+        time: 38, hearts: 3, target: 9,
+        spawns: [{x:0,y:1},{x:0,y:4}],
+        exits: [
+          {x:5,y:0,color:'yellow'}, {x:5,y:2,color:'green'}, {x:5,y:4,color:'blue'}, {x:5,y:5,color:'red'}
+        ],
+        gates: [
+          {x:1,y:1,dir:'down'}, {x:1,y:4,dir:'right'}, {x:2,y:0,dir:'right'}, {x:2,y:2,dir:'down'},
+          {x:2,y:5,dir:'up'}, {x:3,y:1,dir:'right'}, {x:3,y:3,dir:'up'}, {x:4,y:2,dir:'right'}, {x:4,y:4,dir:'up'}
+        ],
+        walls: [{x:3,y:5},{x:1,y:3}],
+        queue: ['yellow','green','blue','red','blue','yellow','green','red','yellow','green','blue']
+      },
+      {
+        time: 36, hearts: 3, target: 10,
+        spawns: [{x:0,y:0},{x:0,y:2},{x:0,y:5}],
+        exits: [
+          {x:5,y:0,color:'blue'}, {x:5,y:2,color:'yellow'}, {x:5,y:3,color:'red'}, {x:5,y:5,color:'green'}
+        ],
+        gates: [
+          {x:1,y:0,dir:'right'}, {x:1,y:2,dir:'down'}, {x:1,y:5,dir:'up'}, {x:2,y:1,dir:'right'},
+          {x:2,y:4,dir:'right'}, {x:3,y:0,dir:'down'}, {x:3,y:2,dir:'right'}, {x:3,y:4,dir:'up'},
+          {x:4,y:1,dir:'down'}, {x:4,y:3,dir:'right'}, {x:4,y:5,dir:'up'}
+        ],
+        walls: [{x:2,y:3},{x:3,y:5}],
+        queue: ['blue','yellow','red','green','red','blue','green','yellow','blue','green','red','yellow']
+      }
+    ];
+
+    const boardEl = document.getElementById('board');
+    const statusEl = document.getElementById('status');
+    const levelLabel = document.getElementById('levelLabel');
+    const deliveredLabel = document.getElementById('deliveredLabel');
+    const heartsLabel = document.getElementById('heartsLabel');
+    const timeLabel = document.getElementById('timeLabel');
+    const startBtn = document.getElementById('startBtn');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const resetBtn = document.getElementById('resetBtn');
+
+    let levelIndex = 0;
+    let state = null;
+    let timer = null;
+    let paused = true;
+    let tickCounter = 0;
+
+    function deepClone(obj){ return JSON.parse(JSON.stringify(obj)); }
+
+    function initLevel(index){
+      levelIndex = index;
+      const level = deepClone(levels[index]);
+      state = {
+        ...level,
+        capsules: [],
+        queueIndex: 0,
+        delivered: 0,
+        timeLeft: level.time,
+        spawnFlip: 0,
+        running: false,
+        lost: false,
+        won: false
+      };
+      paused = true;
+      render();
+      setStatus('Tap any arrow tile to rotate it. Then press Start level.', '');
+      clearTimer();
+    }
+
+    function clearTimer(){ if(timer){ clearInterval(timer); timer = null; } }
+
+    function startGame(){
+      if(state.lost || state.won) return;
+      if(state.running && !paused) return;
+      state.running = true;
+      paused = false;
+      setStatus('Routing live. Keep the colors flowing.', 'good');
+      clearTimer();
+      timer = setInterval(tick, 650);
+    }
+
+    function pauseGame(){
+      if(!state.running) return;
+      paused = !paused;
+      if(paused){ clearTimer(); setStatus('Paused.', ''); }
+      else { startGame(); }
+    }
+
+    function rotateGate(x,y){
+      const gate = state.gates.find(g => g.x===x && g.y===y);
+      if(!gate) return;
+      gate.dir = ROTATE[gate.dir];
+      render();
+    }
+
+    function cellType(x,y){
+      if(state.walls.some(w => w.x===x && w.y===y)) return 'wall';
+      const exit = state.exits.find(e => e.x===x && e.y===y);
+      if(exit) return 'exit';
+      if(state.spawns.some(s => s.x===x && s.y===y)) return 'spawn';
+      const gate = state.gates.find(g => g.x===x && g.y===y);
+      if(gate) return 'gate';
+      return 'empty';
+    }
+
+    function moveDirAt(x,y,incomingDir){
+      const gate = state.gates.find(g => g.x===x && g.y===y);
+      if(gate) return gate.dir;
+      return incomingDir;
+    }
+
+    function spawnCapsule(){
+      const spawn = state.spawns[state.spawnFlip % state.spawns.length];
+      state.spawnFlip++;
+      if(state.capsules.some(c => c.x===spawn.x && c.y===spawn.y)){
+        loseHeart('Spawn lane clogged!');
+        return;
+      }
+      const color = state.queue[state.queueIndex % state.queue.length];
+      state.queueIndex++;
+      state.capsules.push({ x: spawn.x, y: spawn.y, dir: 'right', color, stuck:0 });
+    }
+
+    function loseHeart(reason){
+      state.hearts--;
+      setStatus(reason, 'bad');
+      if(state.hearts <= 0){
+        state.lost = true;
+        paused = true;
+        clearTimer();
+        setStatus('Board lost. Tap Reset level to try again.', 'bad');
+      }
+    }
+
+    function tick(){
+      if(paused || state.lost || state.won) return;
+      tickCounter++;
+      state.timeLeft--;
+      if(state.timeLeft < 0){
+        state.lost = true;
+        clearTimer();
+        paused = true;
+        setStatus('Time up! Reset and try again.', 'bad');
+        render();
+        return;
+      }
+      if(tickCounter % 2 === 1) spawnCapsule();
+
+      const occupied = new Map();
+      state.capsules.forEach((c,i)=> occupied.set(`${c.x},${c.y}`, i));
+      const nextCapsules = [];
+
+      for(const capsule of state.capsules){
+        const dir = moveDirAt(capsule.x, capsule.y, capsule.dir);
+        const [dx,dy] = DIRS[dir];
+        const nx = capsule.x + dx;
+        const ny = capsule.y + dy;
+
+        if(nx < 0 || nx >= SIZE || ny < 0 || ny >= SIZE){
+          loseHeart('A capsule escaped the board.');
+          continue;
+        }
+
+        const type = cellType(nx, ny);
+        if(type === 'wall'){
+          loseHeart('Traffic jam on a wall tile.');
+          continue;
+        }
+
+        if(state.capsules.some(c => c !== capsule && c.x === nx && c.y === ny)){
+          loseHeart('Capsules collided.');
+          continue;
+        }
+
+        if(type === 'exit'){
+          const exit = state.exits.find(e => e.x===nx && e.y===ny);
+          if(exit.color === capsule.color){
+            state.delivered++;
+            setStatus(`Nice! ${capsule.color} delivered.`, 'good');
+          } else {
+            loseHeart(`Wrong dock for ${capsule.color}.`);
+          }
+          continue;
+        }
+
+        nextCapsules.push({ ...capsule, x:nx, y:ny, dir });
+      }
+
+      state.capsules = nextCapsules;
+      if(state.delivered >= state.target){
+        state.won = true;
+        clearTimer();
+        paused = true;
+        if(levelIndex < levels.length - 1){
+          setStatus('Level clear! Tap Start level for the next board.', 'good');
+          levelIndex += 1;
+          setTimeout(() => initLevel(levelIndex), 900);
+          return;
+        } else {
+          setStatus('You beat the full MVP loop. Nice routing.', 'good');
+        }
+      }
+      render();
+    }
+
+    function setStatus(text, tone){
+      statusEl.textContent = text;
+      statusEl.className = `status ${tone || ''}`;
+    }
+
+    function render(){
+      levelLabel.textContent = `${Math.min(levelIndex + 1, levels.length)} / ${levels.length}`;
+      deliveredLabel.textContent = `${state.delivered} / ${state.target}`;
+      heartsLabel.textContent = `${Math.max(0, state.hearts)} ❤️`;
+      timeLabel.textContent = `${Math.max(0, state.timeLeft)}s`;
+
+      boardEl.innerHTML = '';
+      for(let y=0; y<SIZE; y++){
+        for(let x=0; x<SIZE; x++){
+          const type = cellType(x,y);
+          const cell = document.createElement('button');
+          cell.className = `cell ${type}`;
+          cell.setAttribute('aria-label', `${type} tile ${x},${y}`);
+          cell.type = 'button';
+
+          if(type === 'gate'){
+            const gate = state.gates.find(g => g.x===x && g.y===y);
+            const arrow = document.createElement('div');
+            arrow.className = 'arrow';
+            arrow.textContent = ARROW[gate.dir];
+            const hint = document.createElement('div');
+            hint.className = 'hint';
+            hint.textContent = 'tap';
+            cell.appendChild(arrow);
+            cell.appendChild(hint);
+            cell.addEventListener('click', ()=> rotateGate(x,y));
+          } else {
+            cell.addEventListener('click', ()=> {});
+          }
+
+          if(type === 'exit'){
+            const exit = state.exits.find(e => e.x===x && e.y===y);
+            cell.classList.add(exit.color);
+          }
+
+          const capsule = state.capsules.find(c => c.x===x && c.y===y);
+          if(capsule){
+            const token = document.createElement('div');
+            token.className = `capsule ${capsule.color}`;
+            cell.appendChild(token);
+          }
+
+          boardEl.appendChild(cell);
+        }
+      }
+    }
+
+    startBtn.addEventListener('click', startGame);
+    pauseBtn.addEventListener('click', pauseGame);
+    resetBtn.addEventListener('click', ()=> initLevel(levelIndex));
+
+    initLevel(0);
+  </script>
+</body>
+</html>
