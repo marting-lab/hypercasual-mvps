@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Color Orbit Sort</title>
+  <style>
+    :root {
+      --bg1: #0f1226;
+      --bg2: #1d2550;
+      --panel: rgba(255,255,255,0.08);
+      --text: #f6f7fb;
+      --muted: #b8c0ff;
+      --red: #ff5d73;
+      --blue: #58a6ff;
+      --green: #39d98a;
+      --yellow: #ffd166;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, system-ui, sans-serif;
+      color: var(--text);
+      background: radial-gradient(circle at top, #27356f, var(--bg1) 55%), linear-gradient(180deg, var(--bg1), #090b17);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 12px;
+      touch-action: manipulation;
+    }
+    .app { width: min(100%, 460px); }
+    .hud, .panel {
+      background: var(--panel);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 18px;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 12px 30px rgba(0,0,0,0.25);
+    }
+    .hud {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+    .stat { text-align: center; }
+    .label { font-size: 12px; color: var(--muted); }
+    .value { font-size: 22px; font-weight: 800; }
+    canvas {
+      width: 100%;
+      aspect-ratio: 1/1;
+      display: block;
+      border-radius: 24px;
+      background: radial-gradient(circle at center, rgba(255,255,255,0.06), rgba(255,255,255,0.02) 45%, rgba(0,0,0,0.18));
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    .gates {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-top: 10px;
+    }
+    button {
+      appearance: none;
+      border: 0;
+      border-radius: 16px;
+      padding: 14px 8px;
+      color: #fff;
+      font-weight: 800;
+      font-size: 16px;
+      box-shadow: inset 0 -4px 0 rgba(0,0,0,0.18);
+    }
+    button:active { transform: translateY(1px); }
+    .panel { margin-top: 12px; padding: 14px; }
+    h1 { font-size: 24px; margin: 0 0 6px; }
+    h2 { font-size: 16px; margin: 0 0 8px; }
+    p, li { color: #e8ebff; line-height: 1.45; }
+    ul { margin: 8px 0 0 18px; padding: 0; }
+    .red { background: var(--red); }
+    .blue { background: var(--blue); }
+    .green { background: var(--green); }
+    .overlay {
+      position: fixed; inset: 0; display: none; place-items: center; background: rgba(6,8,18,0.7); padding: 16px;
+    }
+    .overlay.show { display: grid; }
+    .card { width: min(100%, 360px); padding: 18px; text-align: center; }
+    .cta { background: linear-gradient(180deg, #8f7cff, #6d59ff); width: 100%; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="hud">
+      <div class="stat"><div class="label">Score</div><div class="value" id="score">0</div></div>
+      <div class="stat"><div class="label">Combo</div><div class="value" id="combo">x1</div></div>
+      <div class="stat"><div class="label">Lives</div><div class="value" id="lives">3</div></div>
+    </div>
+    <canvas id="game" width="900" height="900"></canvas>
+    <div class="gates">
+      <button class="red" data-color="red">RED</button>
+      <button class="blue" data-color="blue">BLUE</button>
+      <button class="green" data-color="green">GREEN</button>
+    </div>
+    <div class="panel">
+      <h1>Color Orbit Sort</h1>
+      <h2>How to play</h2>
+      <ul>
+        <li>Watch the front dot spinning around the orbit.</li>
+        <li>Tap the matching color gate when you are ready to launch it.</li>
+        <li>Correct matches build combo and speed up scoring.</li>
+        <li>Wrong gates cost a life. Lose all 3 lives and the run ends.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="overlay" id="overlay">
+    <div class="panel card">
+      <h1>Run Over</h1>
+      <p id="finalText">Nice try.</p>
+      <button class="cta" id="restart">Play Again</button>
+    </div>
+  </div>
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const comboEl = document.getElementById('combo');
+    const livesEl = document.getElementById('lives');
+    const overlay = document.getElementById('overlay');
+    const finalText = document.getElementById('finalText');
+    const restartBtn = document.getElementById('restart');
+    const COLORS = {
+      red: '#ff5d73',
+      blue: '#58a6ff',
+      green: '#39d98a'
+    };
+    let queue, angle, spinSpeed, score, combo, lives, gameOver, particles;
+
+    function randColor() {
+      const keys = Object.keys(COLORS);
+      return keys[Math.floor(Math.random() * keys.length)];
+    }
+
+    function reset() {
+      queue = Array.from({ length: 10 }, randColor);
+      angle = -Math.PI / 2;
+      spinSpeed = 0.018;
+      score = 0;
+      combo = 1;
+      lives = 3;
+      gameOver = false;
+      particles = [];
+      overlay.classList.remove('show');
+      syncHud();
+    }
+
+    function syncHud() {
+      scoreEl.textContent = score;
+      comboEl.textContent = `x${combo}`;
+      livesEl.textContent = lives;
+    }
+
+    function emitBurst(x, y, color) {
+      for (let i = 0; i < 10; i++) {
+        particles.push({
+          x, y,
+          vx: (Math.random() - 0.5) * 7,
+          vy: (Math.random() - 0.5) * 7,
+          life: 30 + Math.random() * 15,
+          color
+        });
+      }
+    }
+
+    function shoot(color) {
+      if (gameOver || queue.length === 0) return;
+      const front = queue.shift();
+      const x = canvas.width / 2 + Math.cos(angle) * 215;
+      const y = canvas.height / 2 + Math.sin(angle) * 215;
+      if (front === color) {
+        score += 10 * combo;
+        combo = Math.min(combo + 1, 8);
+        spinSpeed += 0.0012;
+        emitBurst(x, y, COLORS[color]);
+      } else {
+        lives -= 1;
+        combo = 1;
+        spinSpeed = Math.max(0.016, spinSpeed - 0.002);
+        emitBurst(x, y, '#ffffff');
+      }
+      queue.push(randColor());
+      syncHud();
+      if (lives <= 0) {
+        gameOver = true;
+        finalText.textContent = `Final score: ${score}`;
+        overlay.classList.add('show');
+      }
+    }
+
+    document.querySelectorAll('[data-color]').forEach(btn => {
+      btn.addEventListener('click', () => shoot(btn.dataset.color));
+    });
+    restartBtn.addEventListener('click', reset);
+
+    function drawGateArcs() {
+      const gates = [
+        { color: 'red', start: Math.PI * 0.82, end: Math.PI * 1.18 },
+        { color: 'blue', start: Math.PI * 1.32, end: Math.PI * 1.68 },
+        { color: 'green', start: Math.PI * 1.82, end: Math.PI * 2.18 }
+      ];
+      ctx.lineWidth = 26;
+      gates.forEach(g => {
+        ctx.beginPath();
+        ctx.strokeStyle = COLORS[g.color];
+        ctx.globalAlpha = 0.95;
+        ctx.arc(450, 450, 310, g.start, g.end);
+        ctx.stroke();
+      });
+      ctx.globalAlpha = 1;
+    }
+
+    function drawQueue() {
+      const radius = 215;
+      const step = Math.PI / 10;
+      queue.forEach((color, i) => {
+        const a = angle - i * step;
+        const x = 450 + Math.cos(a) * radius;
+        const y = 450 + Math.sin(a) * radius;
+        ctx.beginPath();
+        ctx.fillStyle = COLORS[color];
+        ctx.shadowBlur = i === 0 ? 30 : 0;
+        ctx.shadowColor = COLORS[color];
+        ctx.arc(x, y, i === 0 ? 28 : 22, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        if (i === 0) {
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 4;
+          ctx.stroke();
+        }
+      });
+    }
+
+    function drawCenter() {
+      ctx.beginPath();
+      ctx.fillStyle = 'rgba(255,255,255,0.08)';
+      ctx.arc(450, 450, 115, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+      ctx.stroke();
+      ctx.fillStyle = '#dfe5ff';
+      ctx.font = 'bold 22px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('MATCH', 450, 440);
+      ctx.fillText('THE FRONT DOT', 450, 472);
+    }
+
+    function drawParticles() {
+      particles = particles.filter(p => p.life > 0);
+      particles.forEach(p => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vx *= 0.98;
+        p.vy *= 0.98;
+        p.life -= 1;
+        ctx.globalAlpha = Math.max(p.life / 40, 0);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x, p.y, 8, 8);
+      });
+      ctx.globalAlpha = 1;
+    }
+
+    function loop() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      angle += gameOver ? 0 : spinSpeed;
+      drawGateArcs();
+      drawQueue();
+      drawCenter();
+      drawParticles();
+      requestAnimationFrame(loop);
+    }
+
+    reset();
+    loop();
+  </script>
+</body>
+</html>
