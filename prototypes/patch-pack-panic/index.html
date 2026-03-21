@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Patch Pack Panic</title>
+  <style>
+    :root {
+      --bg1:#fff6e9; --bg2:#ffd8a8; --panel:rgba(255,255,255,0.78); --text:#2d2340; --muted:#6f6287;
+      --pink:#ff6fae; --blue:#69b8ff; --green:#7ad66f; --yellow:#ffc94d; --purple:#9b7bff; --dark:#44355b;
+    }
+    * { box-sizing:border-box; }
+    body {
+      margin:0; font-family:Inter,system-ui,sans-serif; color:var(--text);
+      background:linear-gradient(180deg,var(--bg2),var(--bg1)); min-height:100vh; padding:12px; display:flex; justify-content:center;
+      touch-action:manipulation;
+    }
+    .app { width:min(100%,460px); }
+    .panel {
+      background:var(--panel); border:1px solid rgba(68,53,91,0.12); border-radius:20px; padding:12px;
+      box-shadow:0 10px 25px rgba(68,53,91,0.12); backdrop-filter:blur(8px);
+    }
+    .hud { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:10px; }
+    .stat { text-align:center; }
+    .label { font-size:12px; color:var(--muted); }
+    .value { font-size:24px; font-weight:800; }
+    .board {
+      display:grid; grid-template-columns:repeat(6,1fr); gap:6px; margin-top:8px;
+      background:rgba(255,255,255,0.55); padding:8px; border-radius:18px;
+    }
+    .cell {
+      aspect-ratio:1/1; border-radius:14px; background:#fff; border:2px dashed rgba(68,53,91,0.12);
+      display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700;
+    }
+    .cell.blocked { background:repeating-linear-gradient(45deg,#d9d2e8,#d9d2e8 8px,#cfc4e6 8px,#cfc4e6 16px); border-style:solid; }
+    .cell.preview { outline:3px solid var(--dark); outline-offset:-3px; }
+    .cell.bad { outline:3px solid #ff5f5f; outline-offset:-3px; }
+    .pieces { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin:12px 0; }
+    .piece {
+      min-height:96px; border:none; border-radius:18px; padding:8px; color:#fff; font-weight:800; position:relative;
+      box-shadow:inset 0 -4px 0 rgba(0,0,0,0.12);
+    }
+    .piece.selected { transform:translateY(-2px) scale(1.02); box-shadow:0 8px 18px rgba(68,53,91,0.22), inset 0 -4px 0 rgba(0,0,0,0.12); }
+    .piece.used { opacity:0.35; filter:grayscale(0.4); }
+    .piece small { display:block; opacity:0.9; }
+    .mini-grid { display:grid; gap:4px; margin-top:8px; justify-content:center; }
+    .mini-cell { width:14px; height:14px; border-radius:4px; background:rgba(255,255,255,0.85); }
+    .actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .actions button, .overlay button { border:none; border-radius:16px; padding:14px; font-weight:800; font-size:15px; }
+    .ghost { background:#efe7fb; color:var(--text); }
+    .cta { background:linear-gradient(180deg,#8d6bff,#6a49f2); color:#fff; }
+    h1 { font-size:24px; margin:0 0 4px; }
+    h2 { margin:0 0 8px; font-size:16px; }
+    p, li { line-height:1.45; }
+    ul { padding-left:18px; margin:8px 0 0; }
+    .overlay { position:fixed; inset:0; display:none; place-items:center; background:rgba(45,35,64,0.48); padding:16px; }
+    .overlay.show { display:grid; }
+    .card { width:min(100%,360px); }
+    .footer { margin-top:10px; font-size:13px; color:var(--muted); text-align:center; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="panel hud">
+      <div class="stat"><div class="label">Level</div><div class="value" id="level">1</div></div>
+      <div class="stat"><div class="label">Time</div><div class="value" id="time">35</div></div>
+      <div class="stat"><div class="label">Score</div><div class="value" id="score">0</div></div>
+    </div>
+
+    <div class="panel">
+      <h1>Patch Pack Panic</h1>
+      <div class="board" id="board"></div>
+      <div class="pieces" id="pieces"></div>
+      <div class="actions">
+        <button class="ghost" id="rotate">Rotate Piece</button>
+        <button class="cta" id="resetLevel">Reset Level</button>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:12px;">
+      <h2>How to play</h2>
+      <ul>
+        <li>Tap a patch piece to select it.</li>
+        <li>Tap a board cell to place the selected rectangle.</li>
+        <li>Fill every open tile before the timer hits zero.</li>
+        <li>Use the bonus patch early for extra time and score.</li>
+      </ul>
+    </div>
+    <div class="footer">Mobile-friendly HTML MVP • One-thumb puzzle loop • Flat 2D art</div>
+  </div>
+
+  <div class="overlay" id="overlay">
+    <div class="panel card">
+      <h1 id="overlayTitle">Game Over</h1>
+      <p id="overlayText">Try again.</p>
+      <button class="cta" id="playAgain" style="width:100%;">Play Again</button>
+    </div>
+  </div>
+
+  <script>
+    const boardEl = document.getElementById('board');
+    const piecesEl = document.getElementById('pieces');
+    const timeEl = document.getElementById('time');
+    const levelEl = document.getElementById('level');
+    const scoreEl = document.getElementById('score');
+    const rotateBtn = document.getElementById('rotate');
+    const resetBtn = document.getElementById('resetLevel');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayText = document.getElementById('overlayText');
+    const playAgain = document.getElementById('playAgain');
+
+    const SIZE = 6;
+    const COLORS = ['#ff6fae','#69b8ff','#7ad66f','#ffc94d','#9b7bff','#ff8a5b'];
+    const LEVELS = [
+      { blocked:[1,4], pieces:[[2,2],[1,4],[2,3],[1,2]], bonus:0, time:35 },
+      { blocked:[0,11,18], pieces:[[2,2],[3,1],[2,3],[1,4],[1,2]], bonus:2, time:36 },
+      { blocked:[5,12,23,30], pieces:[[2,2],[2,3],[1,4],[1,4],[1,1]], bonus:1, time:37 }
+    ];
+
+    let state;
+    let tickHandle;
+
+    function cloneLevel(index) {
+      const template = LEVELS[index % LEVELS.length];
+      return {
+        blocked:[...template.blocked],
+        pieces: template.pieces.map((dims, i) => ({ id:i, w:dims[0], h:dims[1], used:false, color:COLORS[i % COLORS.length], bonus:i===template.bonus })),
+        time: template.time
+      };
+    }
+
+    function startGame() {
+      state = { level:1, score:0 };
+      startLevel();
+      if (tickHandle) clearInterval(tickHandle);
+      tickHandle = setInterval(() => {
+        if (overlay.classList.contains('show')) return;
+        state.time -= 1;
+        syncHud();
+        if (state.time <= 0) endRun(false);
+      }, 1000);
+    }
+
+    function startLevel() {
+      const data = cloneLevel(state.level - 1);
+      state.board = Array.from({ length: SIZE * SIZE }, (_, i) => data.blocked.includes(i) ? 'blocked' : null);
+      state.pieces = data.pieces;
+      state.selected = state.pieces.find(p => !p.used)?.id ?? null;
+      state.time = data.time + Math.min(state.level - 1, 8);
+      state.preview = [];
+      render();
+      syncHud();
+      overlay.classList.remove('show');
+    }
+
+    function syncHud() {
+      timeEl.textContent = state.time;
+      levelEl.textContent = state.level;
+      scoreEl.textContent = state.score;
+    }
+
+    function selectedPiece() {
+      return state.pieces.find(p => p.id === state.selected && !p.used) || null;
+    }
+
+    function cellsForPlacement(piece, startIndex) {
+      const row = Math.floor(startIndex / SIZE);
+      const col = startIndex % SIZE;
+      if (col + piece.w > SIZE || row + piece.h > SIZE) return null;
+      const cells = [];
+      for (let y = 0; y < piece.h; y++) {
+        for (let x = 0; x < piece.w; x++) {
+          const idx = (row + y) * SIZE + col + x;
+          if (state.board[idx]) return null;
+          cells.push(idx);
+        }
+      }
+      return cells;
+    }
+
+    function placePiece(index) {
+      const piece = selectedPiece();
+      if (!piece) return;
+      const cells = cellsForPlacement(piece, index);
+      if (!cells) {
+        state.preview = ['bad', index];
+        renderBoard();
+        return;
+      }
+      cells.forEach(idx => state.board[idx] = piece.color);
+      piece.used = true;
+      state.score += cells.length * 5 + (piece.bonus ? 20 : 0);
+      if (piece.bonus) state.time += 6;
+      state.selected = state.pieces.find(p => !p.used)?.id ?? null;
+      state.preview = [];
+      render();
+      syncHud();
+      if (state.board.every(cell => cell)) {
+        state.score += state.time * 3;
+        state.level += 1;
+        startLevel();
+      }
+    }
+
+    function renderBoard() {
+      boardEl.innerHTML = '';
+      const previewType = state.preview[0];
+      const previewIndex = state.preview[1];
+      let previewCells = [];
+      const piece = selectedPiece();
+      if (piece != null && typeof previewIndex === 'number') {
+        previewCells = cellsForPlacement(piece, previewIndex) || [previewIndex];
+      }
+      state.board.forEach((cell, index) => {
+        const div = document.createElement('button');
+        div.className = 'cell';
+        div.type = 'button';
+        if (cell === 'blocked') div.classList.add('blocked');
+        else if (cell) { div.style.background = cell; div.style.borderStyle = 'solid'; }
+        if (previewCells.includes(index)) div.classList.add(previewType === 'bad' ? 'bad' : 'preview');
+        div.addEventListener('click', () => placePiece(index));
+        boardEl.appendChild(div);
+      });
+    }
+
+    function renderPieces() {
+      piecesEl.innerHTML = '';
+      state.pieces.forEach(piece => {
+        const btn = document.createElement('button');
+        btn.className = 'piece' + (piece.id === state.selected && !piece.used ? ' selected' : '') + (piece.used ? ' used' : '');
+        btn.style.background = piece.color;
+        btn.disabled = piece.used;
+        btn.innerHTML = `<div>${piece.bonus ? 'Bonus Patch' : 'Patch'}</div><small>${piece.w}×${piece.h}</small>`;
+        const mini = document.createElement('div');
+        mini.className = 'mini-grid';
+        mini.style.gridTemplateColumns = `repeat(${piece.w}, 14px)`;
+        for (let i = 0; i < piece.w * piece.h; i++) {
+          const cell = document.createElement('div');
+          cell.className = 'mini-cell';
+          mini.appendChild(cell);
+        }
+        btn.appendChild(mini);
+        btn.addEventListener('click', () => { state.selected = piece.id; renderPieces(); });
+        piecesEl.appendChild(btn);
+      });
+    }
+
+    function render() { renderBoard(); renderPieces(); }
+
+    rotateBtn.addEventListener('click', () => {
+      const piece = selectedPiece();
+      if (!piece) return;
+      [piece.w, piece.h] = [piece.h, piece.w];
+      renderPieces();
+    });
+
+    resetBtn.addEventListener('click', startLevel);
+    playAgain.addEventListener('click', startGame);
+
+    function endRun(won) {
+      overlayTitle.textContent = won ? 'You Win!' : 'Time Up';
+      overlayText.textContent = won ? `Final score: ${state.score}` : `You reached level ${state.level} with ${state.score} points.`;
+      overlay.classList.add('show');
+    }
+
+    startGame();
+  </script>
+</body>
+</html>
