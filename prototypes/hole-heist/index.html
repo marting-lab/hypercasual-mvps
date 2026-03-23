@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Hole Heist</title>
+  <style>
+    :root {
+      --bg: #0f1226;
+      --panel: #171b36;
+      --ink: #eef2ff;
+      --muted: #aab3d6;
+      --accent: #7c5cff;
+      --good: #3ddc97;
+      --bad: #ff5f7a;
+      --warn: #ffd166;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: radial-gradient(circle at top, #1d2350 0, var(--bg) 55%);
+      color: var(--ink);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px;
+      gap: 12px;
+      touch-action: none;
+    }
+    .wrap { width: min(100%, 560px); }
+    .card {
+      background: rgba(23,27,54,.92);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 18px;
+      box-shadow: 0 12px 28px rgba(0,0,0,.25);
+    }
+    .hud {
+      padding: 14px;
+      display: grid;
+      grid-template-columns: repeat(3,1fr);
+      gap: 10px;
+      font-size: 14px;
+    }
+    .metric b { display:block; font-size: 18px; margin-top: 4px; }
+    canvas {
+      width: 100%;
+      display: block;
+      border-radius: 18px;
+      background: linear-gradient(180deg, #f7f2d9 0%, #eadfb5 100%);
+    }
+    .controls, .howto { padding: 14px; }
+    .controls { display:flex; gap:10px; justify-content:space-between; align-items:center; }
+    button {
+      border: 0; border-radius: 999px; padding: 12px 16px;
+      background: var(--accent); color: white; font-weight: 700;
+    }
+    .pill { padding: 8px 12px; border-radius: 999px; background: rgba(255,255,255,.08); color: var(--muted); font-size: 13px; }
+    .howto h2 { margin: 0 0 8px; font-size: 16px; }
+    .howto ul { margin: 0; padding-left: 18px; color: var(--muted); }
+    .footer { text-align:center; font-size:12px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="wrap card hud">
+    <div class="metric">Target <b id="targetLabel">Red x 8</b></div>
+    <div class="metric">Time <b id="timeLabel">25.0s</b></div>
+    <div class="metric">Score <b id="scoreLabel">0</b></div>
+  </div>
+
+  <div class="wrap card">
+    <canvas id="game" width="560" height="820" aria-label="Hole Heist game area"></canvas>
+  </div>
+
+  <div class="wrap card controls">
+    <button id="restartBtn">Restart run</button>
+    <div class="pill" id="statusLabel">Swipe anywhere to move the hole</div>
+  </div>
+
+  <div class="wrap card howto">
+    <h2>How to play</h2>
+    <ul>
+      <li>Drag your finger to move the hole.</li>
+      <li>Swallow only the target color items.</li>
+      <li>Avoid bombs and wrong-color pickups.</li>
+      <li>Reach the quota before the timer ends.</li>
+    </ul>
+  </div>
+
+  <div class="wrap footer">Minimal HTML MVP for rapid gameplay validation.</div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const targetLabel = document.getElementById('targetLabel');
+    const timeLabel = document.getElementById('timeLabel');
+    const scoreLabel = document.getElementById('scoreLabel');
+    const statusLabel = document.getElementById('statusLabel');
+    const restartBtn = document.getElementById('restartBtn');
+
+    const W = canvas.width;
+    const H = canvas.height;
+    const colors = [
+      { key: 'red', fill: '#ff5f7a' },
+      { key: 'blue', fill: '#59a5ff' },
+      { key: 'green', fill: '#3ddc97' },
+      { key: 'yellow', fill: '#ffd166' }
+    ];
+
+    let state;
+    let pointer = { active: false, x: W/2, y: H/2 };
+
+    function rand(min, max) { return Math.random() * (max - min) + min; }
+    function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+    function resetGame() {
+      const targetColor = pick(colors);
+      const quota = 8;
+      const items = [];
+      for (let i = 0; i < 24; i++) {
+        const c = i < 10 ? targetColor : pick(colors.filter(c => c.key !== targetColor.key));
+        items.push({ x: rand(40, W-40), y: rand(90, H-40), r: rand(18, 24), type: 'gem', color: c, alive: true, wobble: rand(0, Math.PI*2) });
+      }
+      for (let i = 0; i < 5; i++) {
+        items.push({ x: rand(40, W-40), y: rand(120, H-50), r: rand(20, 26), type: 'bomb', alive: true, wobble: rand(0, Math.PI*2) });
+      }
+      state = {
+        hole: { x: W/2, y: H*0.72, r: 34 },
+        targetColor,
+        quota,
+        collected: 0,
+        score: 0,
+        time: 25,
+        items,
+        over: false,
+        won: false,
+        combo: 0,
+      };
+      updateHud();
+      statusLabel.textContent = 'Collect only the target color';
+    }
+
+    function updateHud() {
+      targetLabel.textContent = `${state.targetColor.key[0].toUpperCase()+state.targetColor.key.slice(1)} x ${Math.max(0, state.quota - state.collected)}`;
+      timeLabel.textContent = `${state.time.toFixed(1)}s`;
+      scoreLabel.textContent = state.score;
+    }
+
+    function getPoint(evt) {
+      const rect = canvas.getBoundingClientRect();
+      const touch = evt.touches ? evt.touches[0] : evt;
+      return {
+        x: (touch.clientX - rect.left) * (canvas.width / rect.width),
+        y: (touch.clientY - rect.top) * (canvas.height / rect.height)
+      };
+    }
+
+    function movePointer(evt) {
+      evt.preventDefault();
+      const p = getPoint(evt);
+      pointer.x = p.x;
+      pointer.y = p.y;
+      pointer.active = true;
+    }
+
+    canvas.addEventListener('pointerdown', movePointer);
+    canvas.addEventListener('pointermove', e => { if (pointer.active) movePointer(e); });
+    window.addEventListener('pointerup', () => pointer.active = false);
+    canvas.addEventListener('touchstart', movePointer, { passive: false });
+    canvas.addEventListener('touchmove', movePointer, { passive: false });
+    window.addEventListener('touchend', () => pointer.active = false, { passive: true });
+    restartBtn.addEventListener('click', resetGame);
+
+    function update(dt) {
+      if (state.over) return;
+      state.time -= dt;
+      if (state.time <= 0) {
+        state.time = 0;
+        state.over = true;
+        statusLabel.textContent = 'Time up — restart and optimize your route';
+      }
+
+      const speed = 320;
+      const dx = pointer.x - state.hole.x;
+      const dy = pointer.y - state.hole.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > 2) {
+        const step = Math.min(speed * dt, dist);
+        state.hole.x += dx / dist * step;
+        state.hole.y += dy / dist * step;
+      }
+      state.hole.x = Math.max(state.hole.r, Math.min(W - state.hole.r, state.hole.x));
+      state.hole.y = Math.max(70 + state.hole.r, Math.min(H - state.hole.r, state.hole.y));
+
+      for (const item of state.items) {
+        if (!item.alive) continue;
+        item.wobble += dt * 2;
+        const d = Math.hypot(item.x - state.hole.x, item.y - state.hole.y);
+        if (d < state.hole.r + item.r * 0.35) {
+          item.alive = false;
+          if (item.type === 'bomb') {
+            state.score = Math.max(0, state.score - 25);
+            state.time = Math.max(0, state.time - 4);
+            state.combo = 0;
+            statusLabel.textContent = 'Bomb! -4s';
+          } else if (item.color.key === state.targetColor.key) {
+            state.collected += 1;
+            state.combo += 1;
+            state.score += 10 + state.combo * 2;
+            statusLabel.textContent = state.combo >= 3 ? `Combo x${state.combo}` : 'Good pickup';
+          } else {
+            state.score = Math.max(0, state.score - 10);
+            state.combo = 0;
+            statusLabel.textContent = 'Wrong color';
+          }
+        }
+      }
+
+      if (state.collected >= state.quota && !state.won) {
+        state.won = true;
+        state.over = true;
+        state.score += Math.round(state.time * 10);
+        statusLabel.textContent = 'Vault open! You cleared the room';
+      }
+
+      updateHud();
+    }
+
+    function drawItem(item) {
+      if (!item.alive) return;
+      const bob = Math.sin(item.wobble) * 2;
+      ctx.save();
+      ctx.translate(item.x, item.y + bob);
+      if (item.type === 'bomb') {
+        ctx.fillStyle = '#222';
+        ctx.beginPath();
+        ctx.arc(0, 0, item.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(0, -item.r + 2);
+        ctx.lineTo(10, -item.r - 10);
+        ctx.stroke();
+        ctx.fillStyle = '#ffb703';
+        ctx.beginPath();
+        ctx.arc(12, -item.r - 12, 5, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.fillStyle = item.color.fill;
+        ctx.beginPath();
+        ctx.moveTo(0, -item.r);
+        ctx.lineTo(item.r * 0.86, -item.r * 0.2);
+        ctx.lineTo(item.r * 0.56, item.r * 0.82);
+        ctx.lineTo(-item.r * 0.56, item.r * 0.82);
+        ctx.lineTo(-item.r * 0.86, -item.r * 0.2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,.45)';
+        ctx.beginPath();
+        ctx.arc(-item.r*0.25, -item.r*0.25, item.r*0.22, 0, Math.PI*2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function render() {
+      ctx.clearRect(0,0,W,H);
+      ctx.fillStyle = '#d7c58a';
+      for (let y = 70; y < H; y += 64) {
+        for (let x = 0; x < W; x += 64) {
+          ctx.fillRect(x + ((y/64)%2)*6, y, 58, 58);
+        }
+      }
+
+      for (const item of state.items) drawItem(item);
+
+      ctx.save();
+      ctx.translate(state.hole.x, state.hole.y);
+      const grd = ctx.createRadialGradient(0, 0, 4, 0, 0, state.hole.r);
+      grd.addColorStop(0, '#000');
+      grd.addColorStop(0.65, '#050505');
+      grd.addColorStop(1, '#2f325f');
+      ctx.fillStyle = grd;
+      ctx.beginPath();
+      ctx.arc(0, 0, state.hole.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(124,92,255,.65)';
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      ctx.restore();
+
+      if (state.over) {
+        ctx.fillStyle = 'rgba(9, 11, 24, .72)';
+        ctx.fillRect(0,0,W,H);
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'center';
+        ctx.font = '700 42px system-ui';
+        ctx.fillText(state.won ? 'Vault Open!' : 'Run Failed', W/2, H/2 - 24);
+        ctx.font = '500 24px system-ui';
+        ctx.fillText(state.won ? `Final score ${state.score}` : 'Tap restart to try again', W/2, H/2 + 24);
+      }
+    }
+
+    let last = performance.now();
+    function loop(now) {
+      const dt = Math.min(0.033, (now - last) / 1000);
+      last = now;
+      update(dt);
+      render();
+      requestAnimationFrame(loop);
+    }
+
+    resetGame();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
