@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <title>Patch Pantry</title>
+  <style>
+    :root{
+      --bg:#fff8ef; --card:#ffffff; --ink:#2d241e; --muted:#705f52; --accent:#ff8a5b;
+      --good:#38b980; --bad:#ef5f67; --grid:#d9c9ba; --shadow:0 10px 30px rgba(67,37,21,.12);
+    }
+    *{box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none}
+    body{margin:0; font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:linear-gradient(180deg,#fff8ef,#ffe9d7); color:var(--ink)}
+    .wrap{max-width:520px; margin:0 auto; min-height:100svh; padding:16px 14px 28px; display:flex; flex-direction:column; gap:14px}
+    .card{background:var(--card); border-radius:20px; padding:14px; box-shadow:var(--shadow)}
+    h1{font-size:28px; margin:0 0 6px}
+    p{margin:0; line-height:1.4}
+    .topline{display:flex; justify-content:space-between; gap:12px; align-items:flex-start}
+    .pillbar{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px}
+    .pill{background:#fff0e6; color:#7b4d34; border-radius:999px; padding:8px 10px; font-size:13px; font-weight:700}
+    .hud{display:grid; grid-template-columns:repeat(3,1fr); gap:10px}
+    .stat{padding:10px 12px; border-radius:16px; background:#fff6ef; text-align:center}
+    .stat b{display:block; font-size:22px}
+    .boardWrap{position:relative}
+    .board{display:grid; gap:4px; touch-action:none; background:#f1e4d7; padding:4px; border-radius:20px}
+    .cell{aspect-ratio:1/1; border-radius:12px; background:#fffaf5; border:1px solid rgba(112,95,82,.12); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:22px; position:relative; overflow:hidden}
+    .cell.anchor{box-shadow:inset 0 0 0 2px rgba(45,36,30,.08)}
+    .cell.preview{outline:3px dashed rgba(255,138,91,.9); outline-offset:-4px}
+    .cell.preview.bad{outline-color:rgba(239,95,103,.95)}
+    .fill{position:absolute; inset:2px; border-radius:10px; opacity:.92}
+    .num{position:relative; z-index:2; text-shadow:0 1px 0 rgba(255,255,255,.8)}
+    .controls{display:flex; gap:10px}
+    button{flex:1; border:0; border-radius:16px; padding:14px 16px; font-weight:800; font-size:16px; cursor:pointer}
+    .primary{background:var(--accent); color:white}
+    .secondary{background:#f4eee7; color:var(--ink)}
+    .footer{font-size:14px; color:var(--muted)}
+    .how ul{margin:8px 0 0 18px; padding:0; color:var(--muted)}
+    .toast{min-height:24px; font-weight:700}
+    .toast.good{color:var(--good)} .toast.bad{color:var(--bad)}
+    @media (max-width:420px){h1{font-size:24px}.cell{font-size:18px}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="card">
+      <div class="topline">
+        <div>
+          <h1>Patch Pantry</h1>
+          <p>Draw exact rectangles around clue tiles to pack the pantry before time runs out.</p>
+        </div>
+      </div>
+      <div class="pillbar">
+        <div class="pill">Mobile friendly</div>
+        <div class="pill">One-thumb drag</div>
+        <div class="pill">3 handcrafted levels</div>
+      </div>
+    </section>
+
+    <section class="card hud">
+      <div class="stat"><span>Level</span><b id="level">1</b></div>
+      <div class="stat"><span>Time</span><b id="time">45</b></div>
+      <div class="stat"><span>Score</span><b id="score">0</b></div>
+    </section>
+
+    <section class="card boardWrap">
+      <div id="board" class="board" aria-label="game board"></div>
+    </section>
+
+    <section class="card">
+      <div id="toast" class="toast">Drag from a numbered tile to create a rectangle with the same area.</div>
+      <div class="controls" style="margin-top:10px;">
+        <button id="undoBtn" class="secondary">Undo</button>
+        <button id="resetBtn" class="secondary">Reset level</button>
+        <button id="nextBtn" class="primary">Next level</button>
+      </div>
+    </section>
+
+    <section class="card how">
+      <strong>How to play</strong>
+      <ul>
+        <li>Touch or click a numbered tile, then drag to stretch a rectangle.</li>
+        <li>The rectangle's area must match the clue number inside it.</li>
+        <li>Rectangles cannot overlap, and every tile must be filled.</li>
+        <li>Clear the board to move on. Beat the timer for a better score.</li>
+      </ul>
+    </section>
+
+    <p class="footer">MVP goal: validate whether tiny rectangle-logic boards feel sticky enough for a hybridcasual daily challenge loop.</p>
+  </div>
+
+  <script>
+    const palette = ['#ffd166','#7bd389','#6ec6ff','#c792ea','#ff9f9f','#8bd3dd','#f7b267','#90be6d'];
+    const levels = [
+      { size: 4, time: 45, anchors: [ {x:0,y:0,n:4}, {x:2,y:0,n:2}, {x:3,y:0,n:2}, {x:2,y:2,n:4}, {x:0,y:2,n:2}, {x:0,y:3,n:2} ] },
+      { size: 5, time: 55, anchors: [ {x:0,y:0,n:5}, {x:1,y:0,n:4}, {x:4,y:0,n:5}, {x:1,y:2,n:3}, {x:4,y:2,n:2}, {x:0,y:3,n:3}, {x:3,y:3,n:3} ] },
+      { size: 6, time: 70, anchors: [ {x:0,y:0,n:6}, {x:2,y:0,n:4}, {x:4,y:0,n:2}, {x:0,y:2,n:6}, {x:2,y:2,n:6}, {x:4,y:1,n:4}, {x:4,y:3,n:4}, {x:0,y:5,n:4} ] }
+    ];
+
+    let levelIndex = 0, score = 0, timeLeft = levels[0].time, timer = null;
+    let boardState = null, activeAnchor = null, preview = null, history = [];
+
+    const boardEl = document.getElementById('board');
+    const levelEl = document.getElementById('level');
+    const timeEl = document.getElementById('time');
+    const scoreEl = document.getElementById('score');
+    const toastEl = document.getElementById('toast');
+
+    function setToast(msg, type='') {
+      toastEl.textContent = msg;
+      toastEl.className = `toast ${type}`;
+    }
+
+    function initLevel() {
+      const level = levels[levelIndex];
+      timeLeft = level.time;
+      boardState = Array.from({length: level.size}, () => Array(level.size).fill(null));
+      activeAnchor = null; preview = null; history = [];
+      levelEl.textContent = String(levelIndex + 1);
+      timeEl.textContent = String(timeLeft);
+      scoreEl.textContent = String(score);
+      boardEl.style.gridTemplateColumns = `repeat(${level.size}, 1fr)`;
+      render();
+      clearInterval(timer);
+      timer = setInterval(() => {
+        timeLeft--;
+        timeEl.textContent = String(Math.max(0, timeLeft));
+        if (timeLeft <= 0) {
+          clearInterval(timer);
+          setToast('Time up. Reset and try again.', 'bad');
+        }
+      }, 1000);
+      setToast('Drag from a numbered tile to create a rectangle with the same area.');
+    }
+
+    function getAnchorAt(x, y) {
+      return levels[levelIndex].anchors.find(a => a.x === x && a.y === y);
+    }
+
+    function cellKey(x,y){ return `${x},${y}`; }
+
+    function rectFrom(anchor, x2, y2) {
+      const x1 = Math.min(anchor.x, x2), y1 = Math.min(anchor.y, y2);
+      const xMax = Math.max(anchor.x, x2), yMax = Math.max(anchor.y, y2);
+      return {x:x1,y:y1,w:xMax-x1+1,h:yMax-y1+1};
+    }
+
+    function rectCells(rect) {
+      const cells = [];
+      for (let y = rect.y; y < rect.y + rect.h; y++) for (let x = rect.x; x < rect.x + rect.w; x++) cells.push({x,y});
+      return cells;
+    }
+
+    function validateRect(rect, anchor) {
+      const area = rect.w * rect.h;
+      if (area !== anchor.n) return {ok:false, reason:`Need area ${anchor.n}, got ${area}.`};
+      for (const cell of rectCells(rect)) {
+        const owner = boardState[cell.y][cell.x];
+        if (owner) return {ok:false, reason:'That space is already filled.'};
+      }
+      for (const other of levels[levelIndex].anchors) {
+        if (other === anchor) continue;
+        if (other.x >= rect.x && other.x < rect.x + rect.w && other.y >= rect.y && other.y < rect.y + rect.h) {
+          return {ok:false, reason:'Each rectangle can contain only one number.'};
+        }
+      }
+      return {ok:true};
+    }
+
+    function placeRect(rect, anchor) {
+      const color = palette[history.length % palette.length];
+      const cells = rectCells(rect);
+      cells.forEach(cell => boardState[cell.y][cell.x] = { color, anchor: cellKey(anchor.x, anchor.y) });
+      history.push(cells);
+      preview = null;
+      activeAnchor = null;
+      render();
+      if (isComplete()) {
+        clearInterval(timer);
+        const bonus = Math.max(5, timeLeft) * 10;
+        score += bonus;
+        scoreEl.textContent = String(score);
+        setToast(`Pantry packed! +${bonus} points. Tap Next level.`, 'good');
+      } else {
+        setToast('Nice patch. Keep filling the pantry.', 'good');
+      }
+    }
+
+    function isComplete() {
+      return boardState.every(row => row.every(Boolean));
+    }
+
+    function undo() {
+      const last = history.pop();
+      if (!last) return;
+      last.forEach(cell => boardState[cell.y][cell.x] = null);
+      render();
+      setToast('Last patch removed.');
+    }
+
+    function render() {
+      const level = levels[levelIndex];
+      boardEl.innerHTML = '';
+      const previewSet = new Set(preview ? rectCells(preview.rect).map(c => cellKey(c.x,c.y)) : []);
+      for (let y = 0; y < level.size; y++) {
+        for (let x = 0; x < level.size; x++) {
+          const cell = document.createElement('div');
+          cell.className = 'cell';
+          cell.dataset.x = x; cell.dataset.y = y;
+          const fill = boardState[y][x];
+          const anchor = getAnchorAt(x, y);
+          if (fill) {
+            const fillEl = document.createElement('div');
+            fillEl.className = 'fill';
+            fillEl.style.background = fill.color;
+            cell.appendChild(fillEl);
+          }
+          if (anchor) {
+            cell.classList.add('anchor');
+            const num = document.createElement('span');
+            num.className = 'num';
+            num.textContent = anchor.n;
+            cell.appendChild(num);
+          }
+          if (previewSet.has(cellKey(x,y))) {
+            cell.classList.add('preview');
+            if (!preview.ok) cell.classList.add('bad');
+          }
+          boardEl.appendChild(cell);
+        }
+      }
+    }
+
+    function coordsFromEvent(event) {
+      const point = event.touches ? event.touches[0] : event;
+      const el = document.elementFromPoint(point.clientX, point.clientY);
+      if (!el || !el.classList.contains('cell')) return null;
+      return { x: Number(el.dataset.x), y: Number(el.dataset.y) };
+    }
+
+    function onStart(event) {
+      if (timeLeft <= 0 || isComplete()) return;
+      const coords = coordsFromEvent(event);
+      if (!coords) return;
+      const anchor = getAnchorAt(coords.x, coords.y);
+      if (!anchor) {
+        setToast('Start your drag on a numbered tile.', 'bad');
+        return;
+      }
+      if (boardState[coords.y][coords.x]) {
+        setToast('That clue is already used.', 'bad');
+        return;
+      }
+      activeAnchor = anchor;
+      preview = { rect: {x:anchor.x,y:anchor.y,w:1,h:1}, ok: false, reason: `Need area ${anchor.n}, got 1.` };
+      render();
+      event.preventDefault();
+    }
+
+    function onMove(event) {
+      if (!activeAnchor) return;
+      const coords = coordsFromEvent(event);
+      if (!coords) return;
+      const rect = rectFrom(activeAnchor, coords.x, coords.y);
+      const result = validateRect(rect, activeAnchor);
+      preview = { rect, ok: result.ok, reason: result.reason || 'Looks good.' };
+      render();
+      setToast(result.ok ? 'Release to place this patch.' : result.reason, result.ok ? 'good' : 'bad');
+      event.preventDefault();
+    }
+
+    function onEnd() {
+      if (!activeAnchor || !preview) return;
+      if (preview.ok) placeRect(preview.rect, activeAnchor);
+      else {
+        setToast(preview.reason || 'Invalid patch.', 'bad');
+        activeAnchor = null; preview = null; render();
+      }
+    }
+
+    boardEl.addEventListener('mousedown', onStart);
+    boardEl.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onEnd);
+    boardEl.addEventListener('touchstart', onStart, {passive:false});
+    boardEl.addEventListener('touchmove', onMove, {passive:false});
+    window.addEventListener('touchend', onEnd, {passive:false});
+
+    document.getElementById('undoBtn').addEventListener('click', undo);
+    document.getElementById('resetBtn').addEventListener('click', initLevel);
+    document.getElementById('nextBtn').addEventListener('click', () => {
+      if (!isComplete()) {
+        setToast('Finish the current pantry first.', 'bad');
+        return;
+      }
+      levelIndex = (levelIndex + 1) % levels.length;
+      initLevel();
+    });
+
+    initLevel();
+  </script>
+</body>
+</html>
