@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Shift Rescue</title>
+  <style>
+    :root{
+      --bg:#0f172a;--panel:#111827;--panel2:#1f2937;--ink:#e5eefc;--muted:#94a3b8;
+      --tile:#e2e8f0;--water:#38bdf8;--flood:#0ea5e9;--wall:#334155;--hero:#f59e0b;--exit:#22c55e;--danger:#ef4444;
+    }
+    *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:linear-gradient(180deg,#020617,#0f172a 30%,#082f49);color:var(--ink)}
+    .wrap{max-width:760px;margin:0 auto;padding:16px}
+    h1{margin:0 0 6px;font-size:28px}
+    .sub{color:var(--muted);margin:0 0 14px}
+    .card{background:rgba(17,24,39,.88);border:1px solid rgba(148,163,184,.18);border-radius:20px;padding:14px;backdrop-filter: blur(8px);box-shadow:0 16px 40px rgba(0,0,0,.24)}
+    .hud{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
+    .stat{background:var(--panel2);border-radius:14px;padding:10px;text-align:center}
+    .label{display:block;font-size:12px;color:var(--muted)}
+    .value{font-size:22px;font-weight:700}
+    .game{display:grid;grid-template-columns:48px 1fr;gap:10px;align-items:start}
+    .col-controls,.row-controls{display:grid;gap:8px}
+    .col-controls{grid-template-columns:repeat(4,1fr);margin:10px 0}
+    .ctrl{border:none;border-radius:14px;background:#1d4ed8;color:white;font-size:22px;font-weight:700;padding:12px 0;min-height:48px;box-shadow:inset 0 -3px 0 rgba(0,0,0,.2)}
+    .ctrl:active{transform:translateY(1px)}
+    .board-wrap{overflow:auto}
+    .board{display:grid;grid-template-columns:repeat(4,minmax(68px,1fr));gap:8px;touch-action:manipulation}
+    .cell{aspect-ratio:1/1;border-radius:18px;position:relative;background:var(--wall);overflow:hidden;border:2px solid rgba(255,255,255,.06)}
+    .cell.floor{background:var(--tile)}
+    .cell.block{background:linear-gradient(180deg,#475569,#1f2937)}
+    .cell.exit::after{content:"EXIT";position:absolute;inset:auto 6px 6px auto;background:var(--exit);color:#052e16;padding:2px 6px;border-radius:999px;font-size:11px;font-weight:800}
+    .hero{position:absolute;inset:14% 14% auto auto;width:52%;height:52%;background:var(--hero);border-radius:50% 50% 45% 45%;box-shadow:inset 0 -6px 0 rgba(0,0,0,.18)}
+    .hero::before,.hero::after{content:"";position:absolute;top:32%;width:9px;height:9px;background:#111827;border-radius:50%}
+    .hero::before{left:22%}.hero::after{right:22%}
+    .cell.flooded::before{content:"";position:absolute;inset:auto 0 0 0;height:100%;background:rgba(14,165,233,.78)}
+    .cell.flooded.floor{outline:3px solid rgba(255,255,255,.18)}
+    .msg{margin-top:12px;padding:12px 14px;border-radius:14px;background:#0b1220;color:var(--ink);min-height:48px}
+    .actions{display:flex;gap:10px;margin-top:12px}
+    .btn{flex:1;border:none;border-radius:14px;background:#22c55e;color:#052e16;font-weight:800;padding:12px 14px;font-size:16px}
+    .btn.secondary{background:#334155;color:#e2e8f0}
+    .how{margin-top:14px;color:var(--muted);font-size:14px;line-height:1.45}
+    @media (max-width:560px){.wrap{padding:10px}.board{grid-template-columns:repeat(4,minmax(56px,1fr));gap:6px}.game{grid-template-columns:40px 1fr}.ctrl{font-size:18px}}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Shift Rescue</h1>
+  <p class="sub">Slide rows and columns to open a path before the flood reaches you.</p>
+  <div class="card">
+    <div class="hud">
+      <div class="stat"><span class="label">Level</span><span class="value" id="level">1</span></div>
+      <div class="stat"><span class="label">Moves Left</span><span class="value" id="moves">7</span></div>
+      <div class="stat"><span class="label">Flood Rows</span><span class="value" id="flood">0</span></div>
+    </div>
+    <div class="col-controls" id="colControls"></div>
+    <div class="game">
+      <div class="row-controls" id="rowControls"></div>
+      <div class="board-wrap"><div class="board" id="board"></div></div>
+    </div>
+    <div class="msg" id="message"></div>
+    <div class="actions">
+      <button class="btn" id="nextBtn" hidden>Next Level</button>
+      <button class="btn secondary" id="resetBtn">Reset Level</button>
+    </div>
+    <div class="how">
+      <strong>How to play</strong><br>
+      Tap a row arrow to shift that row right. Tap a top arrow to shift that column down. Build a connected path from the survivor to the green exit. After every move, the flood rises one more cell layer from the bottom. Reach the exit before your tile floods.
+    </div>
+  </div>
+</div>
+<script>
+const levels = [
+  {
+    moves: 7,
+    hero: [0,0],
+    exit: [0,3],
+    grid: [
+      ['floor','block','floor','floor'],
+      ['block','floor','block','floor'],
+      ['floor','floor','floor','block'],
+      ['block','floor','block','floor']
+    ]
+  },
+  {
+    moves: 8,
+    hero: [1,0],
+    exit: [0,3],
+    grid: [
+      ['floor','block','floor','floor'],
+      ['floor','floor','block','block'],
+      ['block','floor','floor','floor'],
+      ['floor','block','floor','block']
+    ]
+  },
+  {
+    moves: 9,
+    hero: [2,0],
+    exit: [0,3],
+    grid: [
+      ['floor','floor','block','floor'],
+      ['block','floor','block','floor'],
+      ['floor','block','floor','block'],
+      ['floor','floor','floor','floor']
+    ]
+  }
+];
+let levelIndex = 0;
+let state;
+const boardEl = document.getElementById('board');
+const rowControlsEl = document.getElementById('rowControls');
+const colControlsEl = document.getElementById('colControls');
+const levelEl = document.getElementById('level');
+const movesEl = document.getElementById('moves');
+const floodEl = document.getElementById('flood');
+const msgEl = document.getElementById('message');
+const nextBtn = document.getElementById('nextBtn');
+const resetBtn = document.getElementById('resetBtn');
+
+function cloneLevel(idx){
+  const src = levels[idx];
+  return {
+    movesLeft: src.moves,
+    floodRows: 0,
+    hero: [...src.hero],
+    exit: [...src.exit],
+    grid: src.grid.map(r => [...r]),
+    won: false,
+    lost: false
+  };
+}
+function loadLevel(idx){
+  state = cloneLevel(idx);
+  levelEl.textContent = idx + 1;
+  nextBtn.hidden = true;
+  render();
+  setMessage('Make a path to the exit. Every shift raises the flood.');
+}
+function setMessage(t){ msgEl.textContent = t; }
+function shiftRow(r){
+  if (state.won || state.lost) return;
+  state.grid[r].unshift(state.grid[r].pop());
+  if (state.hero[0] === r) state.hero[1] = (state.hero[1] + 1) % 4;
+  if (state.exit[0] === r) state.exit[1] = (state.exit[1] + 1) % 4;
+  afterMove();
+}
+function shiftCol(c){
+  if (state.won || state.lost) return;
+  const col = state.grid.map(row => row[c]);
+  col.unshift(col.pop());
+  state.grid.forEach((row,r)=> row[c] = col[r]);
+  if (state.hero[1] === c) state.hero[0] = (state.hero[0] + 1) % 4;
+  if (state.exit[1] === c) state.exit[0] = (state.exit[0] + 1) % 4;
+  afterMove();
+}
+function afterMove(){
+  state.movesLeft--;
+  state.floodRows = Math.min(4, state.floodRows + 1);
+  checkState();
+  render();
+}
+function isFlooded(r){ return r >= 4 - state.floodRows; }
+function connected(){
+  const [sr,sc] = state.hero, [er,ec] = state.exit;
+  if (state.grid[sr][sc] !== 'floor' || state.grid[er][ec] === 'block') return false;
+  const q = [[sr,sc]];
+  const seen = new Set([`${sr},${sc}`]);
+  while(q.length){
+    const [r,c] = q.shift();
+    if (r === er && c === ec) return true;
+    [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dr,dc]) => {
+      const nr = r + dr, nc = c + dc;
+      if (nr<0||nr>=4||nc<0||nc>=4) return;
+      if (state.grid[nr][nc] !== 'floor') return;
+      const key = `${nr},${nc}`;
+      if (seen.has(key)) return;
+      seen.add(key); q.push([nr,nc]);
+    });
+  }
+  return false;
+}
+function checkState(){
+  if (isFlooded(state.hero[0])) {
+    state.lost = true;
+    setMessage('Flooded! Your survivor ran out of time. Reset and try a better route.');
+    return;
+  }
+  if (connected()) {
+    state.won = true;
+    nextBtn.hidden = false;
+    setMessage('Rescued! Nice. The path is open.');
+    return;
+  }
+  if (state.movesLeft <= 0) {
+    state.lost = true;
+    setMessage('Out of moves. Reset and find a faster path.');
+    return;
+  }
+  setMessage('No path yet. Shift smarter — the flood keeps rising.');
+}
+function render(){
+  movesEl.textContent = state.movesLeft;
+  floodEl.textContent = state.floodRows;
+  rowControlsEl.innerHTML = '';
+  colControlsEl.innerHTML = '';
+  for(let c=0;c<4;c++){
+    const b=document.createElement('button'); b.className='ctrl'; b.textContent='↓'; b.onclick=()=>shiftCol(c); colControlsEl.appendChild(b);
+  }
+  for(let r=0;r<4;r++){
+    const b=document.createElement('button'); b.className='ctrl'; b.textContent='→'; b.onclick=()=>shiftRow(r); rowControlsEl.appendChild(b);
+  }
+  boardEl.innerHTML='';
+  for(let r=0;r<4;r++){
+    for(let c=0;c<4;c++){
+      const cell=document.createElement('div');
+      const type=state.grid[r][c];
+      cell.className=`cell ${type}`;
+      if (r===state.exit[0] && c===state.exit[1]) cell.classList.add('exit');
+      if (isFlooded(r)) cell.classList.add('flooded');
+      if (r===state.hero[0] && c===state.hero[1]) {
+        const hero=document.createElement('div'); hero.className='hero'; cell.appendChild(hero);
+      }
+      boardEl.appendChild(cell);
+    }
+  }
+}
+nextBtn.addEventListener('click', () => {
+  levelIndex = (levelIndex + 1) % levels.length;
+  loadLevel(levelIndex);
+});
+resetBtn.addEventListener('click', () => loadLevel(levelIndex));
+loadLevel(levelIndex);
+</script>
+</body>
+</html>
