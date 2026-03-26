@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Parcel Panic</title>
+  <style>
+    :root{
+      --bg:#f7f1e8; --panel:#fff8ef; --ink:#2c2a28; --accent:#ff8a3d; --good:#45c486; --bad:#ef5b5b;
+      --grid:#d9c6ae; --cell:#f0dfca; --shadow:0 10px 24px rgba(0,0,0,.12);
+    }
+    *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:linear-gradient(180deg,#f9f4ed,#efe0cd);color:var(--ink)}
+    .wrap{max-width:760px;margin:0 auto;padding:14px 14px 28px}
+    h1{margin:0;font-size:clamp(28px,6vw,42px)}
+    .sub{opacity:.8;margin:.35rem 0 0}
+    .card{background:var(--panel);border:2px solid #ead6bd;border-radius:20px;box-shadow:var(--shadow);padding:14px}
+    .top{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;margin-bottom:12px}
+    .stats{display:flex;gap:8px;flex-wrap:wrap}
+    .pill{background:#fff;border:2px solid #ecdac3;border-radius:999px;padding:8px 12px;font-weight:700}
+    .how{font-size:14px;line-height:1.35;margin:10px 0 14px}
+    .layout{display:grid;grid-template-columns:1.1fr .9fr;gap:14px}
+    @media (max-width:720px){.layout{grid-template-columns:1fr}}
+    .grid{display:grid;grid-template-columns:repeat(6,1fr);gap:4px;background:#ccb090;padding:6px;border-radius:18px;touch-action:manipulation}
+    .cell{aspect-ratio:1/1;background:var(--cell);border-radius:10px;position:relative}
+    .cell.filled{box-shadow:inset 0 -4px 0 rgba(0,0,0,.12)}
+    .cell.preview{outline:3px dashed rgba(68,68,68,.35);outline-offset:-3px}
+    .queue{display:grid;gap:10px}
+    .piece{background:#fff;border:2px solid #ecdac3;border-radius:18px;padding:10px;position:relative}
+    .piece.active{border-color:var(--accent);transform:translateY(-2px)}
+    .piece-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+    .mini{display:grid;gap:4px;justify-content:start}
+    .mini-row{display:flex;gap:4px}
+    .mini-cell{width:24px;height:24px;border-radius:7px;background:#eee}
+    button{border:0;background:var(--accent);color:white;font-weight:800;padding:12px 14px;border-radius:14px;font-size:16px}
+    button.secondary{background:#fff;color:var(--ink);border:2px solid #ecdac3}
+    .controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+    .footer{margin-top:14px;font-size:13px;opacity:.75}
+    .banner{min-height:28px;font-weight:800;margin-top:10px}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1>Parcel Panic</h1>
+      <p class="sub">A tiny hypercasual packing prototype</p>
+    </div>
+    <div class="stats">
+      <div class="pill">Score: <span id="score">0</span></div>
+      <div class="pill">Best: <span id="best">0</span></div>
+      <div class="pill">Combo: <span id="combo">x1</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="how"><strong>How to play:</strong> Tap a parcel card to select it. Tap <strong>Rotate</strong> if needed. Then tap a valid spot on the van grid to place it. Fill full rows or columns to clear them. If none of the 3 parcels fit, the run ends.</div>
+    <div class="layout">
+      <div>
+        <div id="grid" class="grid" aria-label="van grid"></div>
+        <div class="banner" id="banner"></div>
+      </div>
+      <div>
+        <div class="queue" id="queue"></div>
+        <div class="controls">
+          <button id="rotateBtn">Rotate parcel</button>
+          <button id="restartBtn" class="secondary">Restart</button>
+        </div>
+        <div class="footer">Design intent: easy to read, one-thumb friendly, flat-color art, instant retry.</div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+const W=6,H=6;
+const colors=['#ff8a3d','#4da6ff','#45c486','#ffd166','#b084f5','#ff6680'];
+const shapeDefs=[
+  [[1,1],[1,1]],
+  [[1,1,1]],
+  [[1,0],[1,1]],
+  [[1,1,0],[0,1,1]],
+  [[1,1,1],[0,1,0]],
+  [[1,1,1,1]],
+  [[1],[1],[1]],
+  [[1,1],[1,0],[1,0]],
+  [[1,1,1],[1,0,0]],
+];
+const state={grid:Array.from({length:H},()=>Array(W).fill(null)),queue:[],selected:0,score:0,combo:1,best:+localStorage.getItem('parcel-panic-best')||0,gameOver:false};
+const $=s=>document.querySelector(s); const gridEl=$('#grid'), queueEl=$('#queue');
+function cloneShape(s){return s.map(r=>[...r]);}
+function rotateShape(s){const h=s.length,w=s[0].length;const out=Array.from({length:w},()=>Array(h).fill(0));for(let y=0;y<h;y++)for(let x=0;x<w;x++)out[x][h-1-y]=s[y][x];return trim(out);} 
+function trim(s){while(s.length&&s[0].every(v=>!v))s.shift();while(s.length&&s[s.length-1].every(v=>!v))s.pop();while(s[0]&&s.every(r=>!r[0]))s.forEach(r=>r.shift());while(s[0]&&s.every(r=>!r[r.length-1]))s.forEach(r=>r.pop());return s;}
+function rand(n){return Math.floor(Math.random()*n)}
+function newPiece(){return {shape:cloneShape(shapeDefs[rand(shapeDefs.length)]),color:colors[rand(colors.length)],id:Math.random().toString(36).slice(2,8)}}
+function refillQueue(){while(state.queue.length<3)state.queue.push(newPiece()); if(state.selected>=state.queue.length)state.selected=0;}
+function canPlace(piece,gx,gy){for(let y=0;y<piece.shape.length;y++)for(let x=0;x<piece.shape[0].length;x++){if(!piece.shape[y][x])continue;const bx=gx+x, by=gy+y; if(bx<0||by<0||bx>=W||by>=H||state.grid[by][bx])return false;} return true;}
+function anyFit(piece){for(let y=0;y<=H-piece.shape.length;y++)for(let x=0;x<=W-piece.shape[0].length;x++)if(canPlace(piece,x,y))return true; return false;}
+function checkGameOver(){if(state.queue.some(anyFit)) return false; state.gameOver=true; say('No parcels fit. Tap Restart.'); return true;}
+function place(piece,gx,gy){for(let y=0;y<piece.shape.length;y++)for(let x=0;x<piece.shape[0].length;x++)if(piece.shape[y][x])state.grid[gy+y][gx+x]=piece.color; const cleared=clearLines(); state.score += 10 + cleared*20*state.combo; state.combo = cleared? Math.min(8,state.combo+1):1; state.queue.splice(state.selected,1); refillQueue(); if(state.score>state.best){state.best=state.score; localStorage.setItem('parcel-panic-best',state.best)} say(cleared?`Nice! Cleared ${cleared} line${cleared>1?'s':''}.`:'Packed. Keep going.'); render(); checkGameOver(); render();}
+function clearLines(){const rows=[], cols=[]; for(let y=0;y<H;y++) if(state.grid[y].every(Boolean)) rows.push(y); for(let x=0;x<W;x++) if(state.grid.every(r=>r[x])) cols.push(x); rows.forEach(y=>state.grid[y]=Array(W).fill(null)); cols.forEach(x=>{for(let y=0;y<H;y++)state.grid[y][x]=null;}); return rows.length+cols.length;}
+function say(t){$('#banner').textContent=t}
+function reset(){state.grid=Array.from({length:H},()=>Array(W).fill(null)); state.queue=[]; state.selected=0; state.score=0; state.combo=1; state.gameOver=false; refillQueue(); say('Pack fast. Clear rows and columns.'); render();}
+function render(){ $('#score').textContent=state.score; $('#best').textContent=state.best; $('#combo').textContent='x'+state.combo; renderGrid(); renderQueue(); }
+function renderGrid(){gridEl.innerHTML=''; const piece=state.queue[state.selected]; for(let y=0;y<H;y++)for(let x=0;x<W;x++){const d=document.createElement('button'); d.className='cell'+(state.grid[y][x]?' filled':''); d.style.background=state.grid[y][x]||''; d.disabled=state.gameOver; d.onclick=()=>{if(state.gameOver||!piece)return; if(canPlace(piece,x,y)) place(piece,x,y); else say('That parcel does not fit there.');}; gridEl.appendChild(d);} }
+function renderQueue(){queueEl.innerHTML=''; state.queue.forEach((p,i)=>{const card=document.createElement('div'); card.className='piece'+(i===state.selected?' active':''); card.onclick=()=>{state.selected=i; render();}; const head=document.createElement('div'); head.className='piece-head'; head.innerHTML=`<strong>Parcel ${i+1}</strong><span style="font-size:12px;opacity:.7">tap to select</span>`; const mini=document.createElement('div'); mini.className='mini'; mini.style.gridTemplateColumns=`repeat(${p.shape[0].length},24px)`; p.shape.forEach(row=>{const rowEl=document.createElement('div'); rowEl.className='mini-row'; row.forEach(v=>{const c=document.createElement('div'); c.className='mini-cell'; c.style.background=v?p.color:'#f3eadf'; rowEl.appendChild(c)}); mini.appendChild(rowEl)}); card.append(head,mini); queueEl.appendChild(card);}); }
+$('#rotateBtn').onclick=()=>{if(state.gameOver||!state.queue[state.selected])return; state.queue[state.selected].shape=rotateShape(state.queue[state.selected].shape); render(); say('Parcel rotated.');};
+$('#restartBtn').onclick=reset;
+reset();
+</script>
+</body>
+</html>
