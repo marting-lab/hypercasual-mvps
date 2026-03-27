@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Patch Picnic</title>
+  <style>
+    :root{
+      --bg1:#fff3df; --bg2:#ffd9c2; --panel:#fffaf2; --ink:#3b2f2a; --accent:#ff7a59; --good:#49b97f; --bad:#e55d5d;
+      --grid:#d6b48f; --cell:#f8e7cf; --shadow:0 12px 28px rgba(0,0,0,.12);
+    }
+    *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--ink);background:linear-gradient(180deg,var(--bg1),var(--bg2));}
+    .wrap{max-width:860px;margin:0 auto;padding:16px 14px 32px;}
+    h1{margin:0;font-size:clamp(30px,6vw,46px)}
+    .sub{margin:.35rem 0 0;opacity:.8}
+    .hero{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;margin-bottom:14px}
+    .stats{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+    .pill{background:#fff;border:2px solid #f0d8b9;border-radius:999px;padding:8px 12px;font-weight:800;box-shadow:var(--shadow)}
+    .card{background:var(--panel);border:2px solid #f0d8b9;border-radius:24px;box-shadow:var(--shadow);padding:14px}
+    .how{font-size:14px;line-height:1.4;margin-bottom:12px}
+    .layout{display:grid;grid-template-columns:1.1fr .9fr;gap:14px}
+    @media (max-width:760px){.hero,.layout{grid-template-columns:1fr}.stats{justify-content:flex-start}}
+    .boardWrap{position:relative}
+    .board{display:grid;grid-template-columns:repeat(6,1fr);gap:5px;background:#d4b18b;padding:8px;border-radius:22px;touch-action:manipulation}
+    .cell{aspect-ratio:1/1;border:0;border-radius:12px;background:var(--cell);box-shadow:inset 0 -3px 0 rgba(0,0,0,.08)}
+    .cell.filled{box-shadow:inset 0 -4px 0 rgba(0,0,0,.16)}
+    .queue{display:grid;gap:10px}
+    .piece{background:#fff;border:2px solid #f0d8b9;border-radius:18px;padding:10px;cursor:pointer}
+    .piece.active{border-color:var(--accent);transform:translateY(-2px)}
+    .pieceHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+    .mini{display:grid;gap:4px;justify-content:start}
+    .miniRow{display:flex;gap:4px}
+    .miniCell{width:24px;height:24px;border-radius:8px;background:#f3e6d7}
+    .controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+    button.action{border:0;border-radius:14px;padding:12px 14px;font-weight:800;font-size:15px;background:var(--accent);color:#fff}
+    button.secondary{background:#fff;color:var(--ink);border:2px solid #f0d8b9}
+    .banner{min-height:28px;font-weight:800;margin-top:10px}
+    .footer{margin-top:12px;font-size:13px;opacity:.78}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <div>
+      <h1>Patch Picnic</h1>
+      <p class="sub">Fit picnic pieces, clear lines, and keep the blanket tidy.</p>
+    </div>
+    <div class="stats">
+      <div class="pill">Score: <span id="score">0</span></div>
+      <div class="pill">Best: <span id="best">0</span></div>
+      <div class="pill">Combo: <span id="combo">x1</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="how"><strong>How to play:</strong> Tap a picnic piece to select it. Tap <strong>Rotate</strong> if you want. Then tap the blanket where you want to place it. Fill full rows or columns to clear them. If none of the 3 queued pieces fit, the run ends.</div>
+    <div class="layout">
+      <div class="boardWrap">
+        <div id="board" class="board"></div>
+        <div id="banner" class="banner"></div>
+      </div>
+      <div>
+        <div id="queue" class="queue"></div>
+        <div class="controls">
+          <button class="action" id="rotateBtn">Rotate</button>
+          <button class="action secondary" id="restartBtn">Restart</button>
+        </div>
+        <div class="footer">Mobile-friendly MVP. Flat 2D art. Instant retry. Built for a quick GitHub Pages playtest.</div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+const W=6,H=6;
+const SHAPES=[
+  [[1,1],[1,1]],
+  [[1,1,1]],
+  [[1],[1],[1]],
+  [[1,0],[1,1]],
+  [[1,1,0],[0,1,1]],
+  [[0,1,0],[1,1,1]],
+  [[1,1,1,1]],
+  [[1,1],[1,0],[1,0]],
+  [[1,0],[1,1],[0,1]],
+];
+const THEMES=[
+  {name:'blanket', color:'#ff8fa3'},
+  {name:'basket', color:'#ffb86b'},
+  {name:'juice', color:'#65c3ff'},
+  {name:'grapes', color:'#8c7bff'},
+  {name:'leaf', color:'#53c58b'},
+  {name:'sun', color:'#ffd45e'},
+];
+const state={grid:Array.from({length:H},()=>Array(W).fill(null)),queue:[],selected:0,score:0,combo:1,best:+localStorage.getItem('patch-picnic-best')||0,gameOver:false};
+const $=s=>document.querySelector(s);
+function cloneShape(s){return s.map(r=>[...r]);}
+function trim(shape){while(shape.length && shape[0].every(v=>!v)) shape.shift(); while(shape.length && shape[shape.length-1].every(v=>!v)) shape.pop(); while(shape[0] && shape.every(r=>!r[0])) shape.forEach(r=>r.shift()); while(shape[0] && shape.every(r=>!r[r.length-1])) shape.forEach(r=>r.pop()); return shape;}
+function rotateShape(shape){const h=shape.length,w=shape[0].length; const out=Array.from({length:w},()=>Array(h).fill(0)); for(let y=0;y<h;y++) for(let x=0;x<w;x++) out[x][h-1-y]=shape[y][x]; return trim(out);}
+function rand(n){return Math.floor(Math.random()*n)}
+function newPiece(){const theme=THEMES[rand(THEMES.length)]; return {id:Math.random().toString(36).slice(2,8), shape:cloneShape(SHAPES[rand(SHAPES.length)]), color:theme.color, name:theme.name};}
+function refillQueue(){while(state.queue.length<3) state.queue.push(newPiece()); if(state.selected>=state.queue.length) state.selected=0;}
+function canPlace(piece,gx,gy){for(let y=0;y<piece.shape.length;y++) for(let x=0;x<piece.shape[0].length;x++){if(!piece.shape[y][x]) continue; const bx=gx+x, by=gy+y; if(bx<0||by<0||bx>=W||by>=H||state.grid[by][bx]) return false;} return true;}
+function anyFit(piece){for(let y=0;y<=H-piece.shape.length;y++) for(let x=0;x<=W-piece.shape[0].length;x++) if(canPlace(piece,x,y)) return true; return false;}
+function say(msg){$('#banner').textContent=msg;}
+function clearLines(){const rows=[], cols=[]; for(let y=0;y<H;y++) if(state.grid[y].every(Boolean)) rows.push(y); for(let x=0;x<W;x++) if(state.grid.every(r=>r[x])) cols.push(x); rows.forEach(y=>state.grid[y]=Array(W).fill(null)); cols.forEach(x=>{for(let y=0;y<H;y++) state.grid[y][x]=null;}); return rows.length+cols.length;}
+function checkGameOver(){if(state.queue.some(anyFit)) return false; state.gameOver=true; say('No more room on the blanket. Tap Restart.'); return true;}
+function placeSelected(gx,gy){if(state.gameOver) return; const piece=state.queue[state.selected]; if(!piece) return; if(!canPlace(piece,gx,gy)){say('That piece does not fit there.'); return;} for(let y=0;y<piece.shape.length;y++) for(let x=0;x<piece.shape[0].length;x++) if(piece.shape[y][x]) state.grid[gy+y][gx+x]=piece.color; const cleared=clearLines(); state.score += 10 + cleared*20*state.combo; state.combo = cleared ? Math.min(8,state.combo+1) : 1; state.queue.splice(state.selected,1); refillQueue(); if(state.score>state.best){state.best=state.score; localStorage.setItem('patch-picnic-best', state.best);} say(cleared ? `Nice! Cleared ${cleared} line${cleared>1?'s':''}.` : 'Packed. Keep going.'); render(); checkGameOver(); render();}
+function reset(){state.grid=Array.from({length:H},()=>Array(W).fill(null)); state.queue=[]; state.selected=0; state.score=0; state.combo=1; state.gameOver=false; refillQueue(); say('Make the coziest picnic you can.'); render();}
+function renderBoard(){const board=$('#board'); board.innerHTML=''; for(let y=0;y<H;y++) for(let x=0;x<W;x++){const btn=document.createElement('button'); btn.className='cell'+(state.grid[y][x]?' filled':''); btn.style.background=state.grid[y][x] || ''; btn.onclick=()=>placeSelected(x,y); board.appendChild(btn);} }
+function renderQueue(){const queue=$('#queue'); queue.innerHTML=''; state.queue.forEach((piece,index)=>{const card=document.createElement('div'); card.className='piece'+(index===state.selected?' active':''); card.onclick=()=>{state.selected=index; render();}; const head=document.createElement('div'); head.className='pieceHead'; head.innerHTML=`<strong>${piece.name}</strong><span style="font-size:12px;opacity:.7">tap to select</span>`; const mini=document.createElement('div'); mini.className='mini'; piece.shape.forEach(row=>{const rowEl=document.createElement('div'); rowEl.className='miniRow'; row.forEach(v=>{const c=document.createElement('div'); c.className='miniCell'; c.style.background=v?piece.color:'#f3e6d7'; rowEl.appendChild(c);}); mini.appendChild(rowEl);}); card.append(head,mini); queue.appendChild(card);}); }
+function render(){ $('#score').textContent=state.score; $('#best').textContent=state.best; $('#combo').textContent='x'+state.combo; renderBoard(); renderQueue(); }
+$('#rotateBtn').onclick=()=>{if(state.gameOver||!state.queue[state.selected]) return; state.queue[state.selected].shape=rotateShape(state.queue[state.selected].shape); say('Piece rotated.'); render();};
+$('#restartBtn').onclick=reset;
+reset();
+</script>
+</body>
+</html>
