@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Pocket Pantry</title>
+  <style>
+    :root{
+      --bg:#f7f2ea;
+      --panel:#fff9f2;
+      --ink:#2d241e;
+      --muted:#7a6c61;
+      --accent:#ff9f68;
+      --accent-2:#6fcf97;
+      --grid:#d8cabb;
+      --cold:#d9efff;
+      --dry:#fff1c9;
+      --danger:#ff6b6b;
+    }
+    *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:linear-gradient(180deg,#fdf8f2,#f4eadf);color:var(--ink)}
+    .wrap{max-width:900px;margin:0 auto;padding:16px 14px 40px;display:grid;gap:16px}
+    .title{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+    h1{margin:0;font-size:clamp(28px,6vw,42px);line-height:1}
+    .subtitle{margin:6px 0 0;color:var(--muted);font-size:14px}
+    .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+    .card,.panel{background:var(--panel);border:2px solid #eadbca;border-radius:18px;box-shadow:0 6px 18px rgba(80,50,20,.06)}
+    .card{padding:10px 12px;text-align:center}
+    .stat-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+    .stat-value{font-size:24px;font-weight:800}
+    .layout{display:grid;grid-template-columns:1.2fr .9fr;gap:16px}
+    .panel{padding:14px}
+    .board-wrap{display:flex;justify-content:center}
+    .board{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;touch-action:manipulation;width:min(92vw,440px);aspect-ratio:1/1}
+    .cell{border-radius:10px;border:1px solid var(--grid);background:#f2e7db;position:relative}
+    .cell.cold{background:var(--cold)} .cell.dry{background:var(--dry)}
+    .cell.filled{border-color:transparent}
+    .cell.preview{outline:3px solid rgba(45,36,30,.18)}
+    .cell.bad{outline:3px solid rgba(255,107,107,.55)}
+    .queue{display:grid;gap:12px}
+    .piece{border:2px solid #eadbca;border-radius:16px;padding:10px;background:white;position:relative}
+    .piece.selected{border-color:var(--accent);box-shadow:0 0 0 4px rgba(255,159,104,.18)}
+    .piece-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:13px;color:var(--muted)}
+    .mini{display:grid;gap:4px;justify-content:start}
+    .mini-cell{width:18px;height:18px;border-radius:6px;opacity:.16;background:#000}
+    .mini-cell.on{opacity:1}
+    button{border:none;border-radius:999px;padding:12px 14px;background:var(--ink);color:white;font-weight:700;font-size:14px}
+    button.alt{background:#efe3d5;color:var(--ink)}
+    .actions{display:flex;gap:10px;flex-wrap:wrap}
+    .howto{font-size:14px;color:var(--ink);line-height:1.45}
+    .legend{display:flex;gap:10px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-top:8px}
+    .dot{display:inline-block;width:12px;height:12px;border-radius:99px;vertical-align:-1px;margin-right:5px}
+    .toast{font-size:13px;color:var(--muted);min-height:20px;margin-top:8px}
+    @media (max-width:760px){.layout{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="title">
+      <div>
+        <h1>Pocket Pantry</h1>
+        <p class="subtitle">Pack grocery pieces, clear full shelves, and survive the messy delivery queue.</p>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="card"><div class="stat-label">Score</div><div class="stat-value" id="score">0</div></div>
+      <div class="card"><div class="stat-label">Combo</div><div class="stat-value" id="combo">x1</div></div>
+      <div class="card"><div class="stat-label">Moves</div><div class="stat-value" id="moves">0</div></div>
+      <div class="card"><div class="stat-label">Best</div><div class="stat-value" id="best">0</div></div>
+    </div>
+
+    <div class="layout">
+      <section class="panel">
+        <div class="board-wrap"><div class="board" id="board"></div></div>
+        <div class="legend">
+          <span><span class="dot" style="background:#d9efff"></span>Cold slot = frozen items bonus</span>
+          <span><span class="dot" style="background:#fff1c9"></span>Dry slot = pantry goods bonus</span>
+        </div>
+        <div class="toast" id="toast">Tap a grocery piece, then tap the board to place it.</div>
+      </section>
+
+      <aside class="panel">
+        <h2 style="margin:0 0 10px">How to play</h2>
+        <div class="howto">
+          <ul>
+            <li>Select one of the 3 grocery pieces.</li>
+            <li>Tap <strong>Rotate</strong> if you want to turn it.</li>
+            <li>Tap a board cell to place the shape with its top-left corner there.</li>
+            <li>Fill a full row or column to clear it.</li>
+            <li>Match <strong>frozen</strong> items to cold slots or <strong>dry</strong> items to dry slots for bonus points.</li>
+            <li>If none of the current pieces fit, the run ends.</li>
+          </ul>
+        </div>
+        <div class="actions" style="margin:12px 0 14px">
+          <button id="rotateBtn">Rotate</button>
+          <button class="alt" id="restartBtn">Restart</button>
+        </div>
+        <div class="queue" id="queue"></div>
+      </aside>
+    </div>
+  </div>
+<script>
+const size = 8;
+const palette = {
+  frozen: '#7cc7ff',
+  dry: '#f5c86b',
+  fresh: '#7adf94',
+  snack: '#ff8aa1'
+};
+const pieceLibrary = [
+  {name:'Milk Crate', kind:'frozen', cells:[[0,0],[1,0],[0,1],[1,1]]},
+  {name:'Cereal L', kind:'dry', cells:[[0,0],[0,1],[0,2],[1,2]]},
+  {name:'Veggie Line', kind:'fresh', cells:[[0,0],[1,0],[2,0],[3,0]]},
+  {name:'Snack Zig', kind:'snack', cells:[[0,0],[1,0],[1,1],[2,1]]},
+  {name:'Peas Corner', kind:'frozen', cells:[[0,0],[1,0],[2,0],[2,1]]},
+  {name:'Pasta T', kind:'dry', cells:[[0,0],[1,0],[2,0],[1,1]]},
+  {name:'Fruit Box', kind:'fresh', cells:[[0,0],[1,0],[0,1]]},
+  {name:'Cookie Bar', kind:'snack', cells:[[0,0],[1,0],[2,0]]}
+];
+let board, special, queue, selectedIndex, score, combo, moves, best;
+const boardEl = document.getElementById('board');
+const queueEl = document.getElementById('queue');
+const scoreEl = document.getElementById('score');
+const comboEl = document.getElementById('combo');
+const movesEl = document.getElementById('moves');
+const bestEl = document.getElementById('best');
+const toastEl = document.getElementById('toast');
+
+function rand(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+function cloneCells(cells){ return cells.map(([x,y])=>[x,y]); }
+function rotateCells(cells){
+  const rotated = cells.map(([x,y])=>[-y,x]);
+  const minX = Math.min(...rotated.map(c=>c[0]));
+  const minY = Math.min(...rotated.map(c=>c[1]));
+  return rotated.map(([x,y])=>[x-minX,y-minY]);
+}
+function makePiece(){
+  const base = rand(pieceLibrary);
+  return {name: base.name, kind: base.kind, color: palette[base.kind], cells: cloneCells(base.cells)};
+}
+function emptyBoard(){ return Array.from({length:size},()=>Array(size).fill(null)); }
+function initSpecial(){
+  const map = Array.from({length:size},()=>Array(size).fill(null));
+  [[1,1],[6,1],[2,5],[5,6]].forEach(([x,y])=>map[y][x]='cold');
+  [[0,4],[4,0],[7,3],[3,7]].forEach(([x,y])=>map[y][x]='dry');
+  return map;
+}
+function refillQueue(){ while(queue.length < 3) queue.push(makePiece()); }
+function getBounds(piece){
+  const xs = piece.cells.map(c=>c[0]), ys = piece.cells.map(c=>c[1]);
+  return {w: Math.max(...xs)+1, h: Math.max(...ys)+1};
+}
+function canPlace(piece, ox, oy){
+  for(const [x,y] of piece.cells){
+    const tx = ox + x, ty = oy + y;
+    if(tx < 0 || ty < 0 || tx >= size || ty >= size) return false;
+    if(board[ty][tx]) return false;
+  }
+  return true;
+}
+function placeSelected(ox, oy){
+  if(selectedIndex == null) return setToast('Select a grocery piece first.');
+  const piece = queue[selectedIndex];
+  if(!canPlace(piece, ox, oy)) return setToast('That piece does not fit there.');
+  let gained = piece.cells.length * 10;
+  for(const [x,y] of piece.cells){
+    const tx = ox+x, ty = oy+y;
+    board[ty][tx] = {color: piece.color, kind: piece.kind};
+    if(special[ty][tx] === 'cold' && piece.kind === 'frozen') gained += 12;
+    if(special[ty][tx] === 'dry' && piece.kind === 'dry') gained += 12;
+  }
+  moves += 1;
+  const lines = clearLines();
+  combo = lines > 0 ? combo + 1 : 1;
+  gained += lines * 80 * combo;
+  score += gained;
+  best = Math.max(best, score);
+  localStorage.setItem('pocket-pantry-best', best);
+  queue.splice(selectedIndex,1);
+  selectedIndex = null;
+  refillQueue();
+  render();
+  setToast(lines > 0 ? `Nice! Cleared ${lines} line${lines>1?'s':''}.` : 'Placed. Keep the pantry tidy.');
+  if(!hasAnyMove()) {
+    setToast('No more fits. Pantry jammed! Tap Restart for another run.');
+    selectedIndex = null;
+  }
+}
+function clearLines(){
+  const rows = [], cols = [];
+  for(let y=0;y<size;y++) if(board[y].every(Boolean)) rows.push(y);
+  for(let x=0;x<size;x++) if(board.every(row=>row[x])) cols.push(x);
+  rows.forEach(y=>{ for(let x=0;x<size;x++) board[y][x]=null; });
+  cols.forEach(x=>{ for(let y=0;y<size;y++) board[y][x]=null; });
+  return rows.length + cols.length;
+}
+function hasAnyMove(){
+  return queue.some(piece => {
+    for(let y=0;y<size;y++) for(let x=0;x<size;x++) if(canPlace(piece,x,y)) return true;
+    return false;
+  });
+}
+function setToast(msg){ toastEl.textContent = msg; }
+function renderBoard(preview){
+  boardEl.innerHTML = '';
+  for(let y=0;y<size;y++) for(let x=0;x<size;x++){
+    const div = document.createElement('button');
+    div.className = 'cell';
+    const slot = special[y][x];
+    if(slot) div.classList.add(slot);
+    const fill = board[y][x];
+    if(fill){ div.classList.add('filled'); div.style.background = fill.color; }
+    if(preview){
+      const state = preview[`${x},${y}`];
+      if(state === 'ok') div.classList.add('preview');
+      if(state === 'bad') div.classList.add('bad');
+    }
+    div.addEventListener('click', ()=>placeSelected(x,y));
+    boardEl.appendChild(div);
+  }
+}
+function renderQueue(){
+  queueEl.innerHTML = '';
+  queue.forEach((piece, i) => {
+    const item = document.createElement('div');
+    item.className = 'piece' + (i===selectedIndex ? ' selected' : '');
+    item.addEventListener('click', ()=>{ selectedIndex = i; render(); });
+    const top = document.createElement('div');
+    top.className = 'piece-top';
+    top.innerHTML = `<strong>${piece.name}</strong><span>${piece.kind}</span>`;
+    const mini = document.createElement('div');
+    mini.className = 'mini';
+    const {w,h} = getBounds(piece);
+    mini.style.gridTemplateColumns = `repeat(${w}, 18px)`;
+    for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+      const c = document.createElement('div');
+      c.className = 'mini-cell';
+      if(piece.cells.some(([px,py])=>px===x&&py===y)){
+        c.classList.add('on');
+        c.style.background = piece.color;
+      }
+      mini.appendChild(c);
+    }
+    item.append(top, mini);
+    queueEl.appendChild(item);
+  });
+}
+function render(){
+  scoreEl.textContent = score;
+  comboEl.textContent = `x${combo}`;
+  movesEl.textContent = moves;
+  bestEl.textContent = best;
+  renderQueue();
+  renderBoard();
+}
+function restart(){
+  board = emptyBoard();
+  special = initSpecial();
+  queue = [];
+  refillQueue();
+  selectedIndex = 0;
+  score = 0; combo = 1; moves = 0;
+  best = Number(localStorage.getItem('pocket-pantry-best') || 0);
+  render();
+  setToast('Fresh pantry. Fill rows and columns to clear space.');
+}
+document.getElementById('rotateBtn').addEventListener('click', ()=>{
+  if(selectedIndex == null) return setToast('Select a piece to rotate.');
+  queue[selectedIndex].cells = rotateCells(queue[selectedIndex].cells);
+  render();
+});
+document.getElementById('restartBtn').addEventListener('click', restart);
+restart();
+</script>
+</body>
+</html>
